@@ -1,14 +1,16 @@
-// Package gnss controls the modem's GNSS receiver (Quectel AT+QGPS) and
-// decodes the NMEA stream of its /dev/gnss* port.
+// Package gnss controls the modem's GNSS receiver through Quectel AT
+// commands (AT+QGPS, AT+QGPSLOC, AT+QGPSGNMEA).
+//
+// The NMEA port (/dev/gnss*) is deliberately not used: on the EM160R, when
+// NMEA output is routed there and nobody reads it, the modem's shared
+// transmit queue fills up and the AT port stops answering within seconds.
+// SetEnabled therefore routes NMEA output nowhere, and sentences are pulled
+// on demand over AT instead.
 package gnss
 
 import (
-	"bufio"
-	"context"
 	"errors"
 	"math"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -18,18 +20,18 @@ import (
 
 // Fix is the receiver state assembled from NMEA sentences.
 type Fix struct {
-	Enabled    bool      `json:"enabled"`
-	Valid      bool      `json:"valid"`
-	Mode       string    `json:"mode"` // "none", "2d", "3d"
-	Lat        float64   `json:"lat"`
-	Lon        float64   `json:"lon"`
-	Alt        float64   `json:"alt"`          // metres above mean sea level
-	SpeedKmh   float64   `json:"speed_kmh"`    //
-	Course     float64   `json:"course"`       // degrees true
-	HDOP       float64   `json:"hdop"`         //
-	SatsUsed   int       `json:"sats_used"`    //
-	SatsInView int       `json:"sats_in_view"` //
-	Time       time.Time `json:"time,omitempty"`
+	Enabled    bool       `json:"enabled"`
+	Valid      bool       `json:"valid"`
+	Mode       string     `json:"mode"` // "none", "2d", "3d"
+	Lat        float64    `json:"lat"`
+	Lon        float64    `json:"lon"`
+	Alt        float64    `json:"alt"`          // metres above mean sea level
+	SpeedKmh   float64    `json:"speed_kmh"`    //
+	Course     float64    `json:"course"`       // degrees true
+	HDOP       float64    `json:"hdop"`         //
+	SatsUsed   int        `json:"sats_used"`    //
+	SatsInView int        `json:"sats_in_view"` //
+	Time       *time.Time `json:"time,omitempty"`
 
 	inView map[string]int // per constellation (GP, GL, GA, BD, ...)
 }
@@ -48,6 +50,14 @@ func SetEnabled(p *at.Port, on bool) error {
 	cmd := "AT+QGPSEND"
 	if on {
 		cmd = "AT+QGPS=1"
+		// See the package comment: never stream NMEA to an unread port, and
+		// keep sentences available to AT+QGPSGNMEA.
+		if _, err := p.Command(`AT+QGPSCFG="outport","none"`); err != nil {
+			return err
+		}
+		if _, err := p.Command(`AT+QGPSCFG="nmeasrc",1`); err != nil {
+			return err
+		}
 	}
 	_, err := p.Command(cmd)
 	var ae *at.Error
@@ -58,53 +68,66 @@ func SetEnabled(p *at.Port, on bool) error {
 	return err
 }
 
-// FindPort returns the NMEA port.
-func FindPort() (string, error) {
-	m, _ := filepath.Glob("/dev/gnss*")
-	if len(m) == 0 {
-		return "", errors.New("no GNSS port found (/dev/gnss*)")
-	}
-	return m[0], nil
-}
-
-// Read collects NMEA sentences for up to d, returning early once a full
-// cycle with a valid fix has been seen.
-func Read(ctx context.Context, path string, d time.Duration) (Fix, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return Fix{}, err
-	}
-	defer f.Close()
-	deadline := time.Now().Add(d)
-	_ = f.SetReadDeadline(deadline)
-	go func() {
-		<-ctx.Done()
-		_ = f.SetReadDeadline(time.Now())
-	}()
-
-	var fix Fix
-	fix.inView = map[string]int{}
-	sawGGA, sawRMC := false, false
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		switch Parse(&fix, sc.Text()) {
-		case "GGA":
-			sawGGA = true
-		case "RMC":
-			sawRMC = true
-		}
-		if sawGGA && sawRMC && fix.Valid {
-			break
+// Query reads the current fix over AT. It must only be called with the
+// receiver enabled.
+func Query(p *at.Port) (Fix, error) {
+	fix := Fix{Enabled: true, Mode: "none", inView: map[string]int{}}
+	// Satellites in view, from the GSV sentences of every constellation.
+	if lines, err := p.Command(`AT+QGPSGNMEA="GSV"`); err == nil {
+		for _, l := range lines {
+			Parse(&fix, strings.TrimSpace(strings.TrimPrefix(l, "+QGPSGNMEA:")))
 		}
 	}
-	if err := sc.Err(); err != nil && !errors.Is(err, os.ErrDeadlineExceeded) {
-		return fix, err
-	}
-	fix.SatsInView = 0
 	for _, n := range fix.inView {
 		fix.SatsInView += n
 	}
+	v, err := p.Query("AT+QGPSLOC=2", "+QGPSLOC:")
+	var ae *at.Error
+	if errors.As(err, &ae) && strings.HasSuffix(ae.Msg, " 516") { // not fixed yet
+		return fix, nil
+	}
+	if err != nil {
+		return fix, err
+	}
+	if err := ParseLoc(&fix, v); err != nil {
+		return fix, err
+	}
 	return fix, nil
+}
+
+// ParseLoc decodes an AT+QGPSLOC=2 payload:
+// <UTC>,<lat>,<lon>,<HDOP>,<alt>,<fix>,<COG>,<spkm>,<spkn>,<date>,<nsat>
+func ParseLoc(fix *Fix, v string) error {
+	f := strings.Split(v, ",")
+	if len(f) < 11 {
+		return errors.New("gnss: bad +QGPSLOC response " + v)
+	}
+	fix.Lat, fix.Lon = num(f[1]), num(f[2])
+	fix.HDOP, fix.Alt = num(f[3]), num(f[4])
+	switch f[5] {
+	case "2":
+		fix.Mode = "2d"
+	case "3":
+		fix.Mode = "3d"
+	}
+	fix.Valid = fix.Mode != "none"
+	fix.Course = cog(f[6])
+	fix.SpeedKmh = num(f[7])
+	fix.SatsUsed, _ = strconv.Atoi(f[10])
+	if t, err := time.Parse("020106150405", f[9]+strings.SplitN(f[0], ".", 2)[0]); err == nil {
+		fix.Time = &t
+	}
+	if fix.SatsInView < fix.SatsUsed {
+		fix.SatsInView = fix.SatsUsed
+	}
+	return nil
+}
+
+// cog decodes the ddd.mm course over ground (degrees and minutes).
+func cog(v string) float64 {
+	x := num(v)
+	deg := math.Floor(x)
+	return math.Round((deg+(x-deg)*100/60)*10) / 10
 }
 
 // Parse folds one NMEA sentence into fix and returns its type (GGA, RMC, ...)
@@ -147,7 +170,7 @@ func Parse(fix *Fix, line string) string {
 			fix.Course = num(f[8])
 		}
 		if t, err := time.Parse("020106150405", f[9]+strings.SplitN(f[1], ".", 2)[0]); err == nil {
-			fix.Time = t
+			fix.Time = &t
 		}
 	case "GSA":
 		if len(f) < 3 {

@@ -35,7 +35,7 @@ func TestParseFix(t *testing.T) {
 	if fix.SpeedKmh != 18.5 || fix.Course != 84.4 {
 		t.Fatalf("speed %v course %v", fix.SpeedKmh, fix.Course)
 	}
-	if fix.Time.Format("2006-01-02 15:04:05") != "2026-11-04 12:35:19" {
+	if fix.Time == nil || fix.Time.Format("2006-01-02 15:04:05") != "2026-11-04 12:35:19" {
 		t.Fatalf("time %v", fix.Time)
 	}
 	if fix.inView["GP"] != 11 || fix.inView["GL"] != 6 {
@@ -62,5 +62,24 @@ func TestChecksum(t *testing.T) {
 	}
 	if coord("00911.4204", "W") != -9.19034 || coord("4528.0662", "S") != -45.46777 {
 		t.Fatal("hemisphere sign")
+	}
+}
+
+func TestParseLoc(t *testing.T) {
+	fix := Fix{Mode: "none", SatsInView: 7}
+	if err := ParseLoc(&fix, "123519.000,45.46777,9.19034,0.9,121.4,3,084.24,18.5,10.0,041126,09"); err != nil {
+		t.Fatal(err)
+	}
+	if !fix.Valid || fix.Mode != "3d" || fix.Lat != 45.46777 || fix.Lon != 9.19034 || fix.SatsUsed != 9 || fix.SatsInView != 9 {
+		t.Fatalf("fix %+v", fix)
+	}
+	if fix.Course != 84.4 || fix.SpeedKmh != 18.5 || fix.Alt != 121.4 {
+		t.Fatalf("course %v speed %v alt %v", fix.Course, fix.SpeedKmh, fix.Alt)
+	}
+	if fix.Time.Format("2006-01-02 15:04:05") != "2026-11-04 12:35:19" {
+		t.Fatalf("time %v", fix.Time)
+	}
+	if ParseLoc(&fix, "garbage") == nil {
+		t.Fatal("accepted garbage")
 	}
 }

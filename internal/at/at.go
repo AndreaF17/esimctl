@@ -57,7 +57,7 @@ func Open(path string) (*Port, error) {
 		var ae *Error
 		if !errors.As(err, &ae) {
 			f.Close()
-			return nil, errors.New("modem AT port not responding (the modem may need a reset, see README)")
+			return nil, errors.New("modem AT port not responding; restart the modem with: esimctl modem off && esimctl modem on")
 		}
 	}
 	p.Timeout = 10 * time.Second
