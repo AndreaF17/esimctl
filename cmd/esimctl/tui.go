@@ -1218,6 +1218,9 @@ func (m model) viewMobile() string {
 	} else if radioOn(md) {
 		kv("Network", "searching…")
 	}
+	if m.gps.Valid {
+		kv("Location", fmt.Sprintf("%.6f, %.6f  ±%.1f HDOP, %.0f m", m.gps.Lat, m.gps.Lon, m.gps.HDOP, m.gps.Alt))
+	}
 	b.WriteString("\n")
 
 	c := m.mobile.Connection

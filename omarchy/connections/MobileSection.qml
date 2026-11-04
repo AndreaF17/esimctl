@@ -16,9 +16,9 @@ Column {
   readonly property string esimctl: Quickshell.env("HOME") + "/.local/bin/esimctl"
   readonly property color fg: bar ? bar.foreground : Commons.Color.foreground
 
-  // esimctl --json modem / gps
+  // esimctl --json modem (includes the GPS fix)
   property var mobile: ({})
-  property var gps: ({})
+  readonly property var gps: mobile.gps || ({})
   readonly property var modem: mobile.modem || null
   readonly property var conn: mobile.connection || ({})
   readonly property bool available: !!modem
@@ -86,7 +86,6 @@ Column {
 
   function refresh() {
     if (!modemProc.running) modemProc.running = true
-    if (opened && !gpsProc.running && !actionProc.running) gpsProc.running = true
   }
   function toggleData() {
     if (busy || locked) return
@@ -107,14 +106,6 @@ Column {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: { try { root.mobile = JSON.parse(text) } catch (e) { root.mobile = ({}) } }
-    }
-  }
-  Process {
-    id: gpsProc
-    command: [root.esimctl, "--json", "gps"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: { try { root.gps = JSON.parse(text) } catch (e) { root.gps = ({}) } }
     }
   }
   Process {

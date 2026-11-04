@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AndreaF17/esimctl/internal/gnss"
 	"github.com/AndreaF17/esimctl/internal/modem"
 )
 
@@ -18,6 +19,7 @@ type modemReport struct {
 	SuggestedAPN *modem.APN `json:"suggested_apn,omitempty"`
 	Messages     int        `json:"messages"`
 	Unread       int        `json:"unread"`
+	GPS          *gnss.Fix  `json:"gps,omitempty"`
 }
 
 func getModemReport() (modemReport, error) {
@@ -31,6 +33,9 @@ func getModemReport() (modemReport, error) {
 	r.Settings = modem.LoadSettings()
 	if msgs, err := modem.Messages(); err == nil {
 		r.Messages, r.Unread = len(msgs), modem.Unread(msgs)
+	}
+	if fix, err := readFix(); err == nil {
+		r.GPS = &fix
 	}
 	if slot, ok := st.ActiveSlot(); ok {
 		if a, ok := modem.BestAPN(st.MCCMNC(), slot.Operator); ok {
@@ -138,6 +143,18 @@ func printModem(r modemReport) {
 	}
 	fmt.Printf("APN:        %s\n", apn)
 	fmt.Printf("Options:    autoconnect %s, roaming %s\n", onOff(r.Settings.Autoconnect), onOff(r.Settings.Roaming))
+	if f := r.GPS; f != nil {
+		switch {
+		case !f.Enabled:
+			fmt.Println("GPS:        off")
+		case !f.Valid:
+			fmt.Printf("GPS:        searching, %d satellites in view\n", f.SatsInView)
+		default:
+			fmt.Printf("GPS:        %.6f, %.6f  (%s fix, %d/%d satellites, HDOP %.1f, altitude %.0f m)\n",
+				f.Lat, f.Lon, strings.ToUpper(f.Mode), f.SatsUsed, f.SatsInView, f.HDOP, f.Alt)
+			fmt.Printf("            https://www.openstreetmap.org/?mlat=%.6f&mlon=%.6f#map=17/%.6f/%.6f\n", f.Lat, f.Lon, f.Lat, f.Lon)
+		}
+	}
 }
 
 func onOff(b bool) string {
