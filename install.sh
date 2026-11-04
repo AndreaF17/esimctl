@@ -10,7 +10,7 @@ install -Dm755 esimctl ~/.local/bin/esimctl
 mkdir -p ~/.config/omarchy/plugins/andrea.esim
 cp omarchy/andrea.esim/* ~/.config/omarchy/plugins/andrea.esim/
 
-if [[ ! -f /etc/udev/rules.d/70-esimctl.rules ]]; then
+if ! cmp -s contrib/70-esimctl.rules /etc/udev/rules.d/70-esimctl.rules; then
   echo "Installing udev rule (needs root)…"
   pkexec sh -c "install -m644 '$PWD/contrib/70-esimctl.rules' /etc/udev/rules.d/ && udevadm control --reload && udevadm trigger --subsystem-match=wwan"
 fi
