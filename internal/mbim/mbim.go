@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -99,8 +100,21 @@ type Device struct {
 
 // Open opens the MBIM control device and performs the MBIM OPEN handshake.
 func Open(path string) (*Device, error) {
-	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	// The kernel allows a single user of a WWAN port: wait for another
+	// esimctl instance (bar widget, TUI) to finish instead of failing.
+	var f *os.File
+	var err error
+	for deadline := time.Now().Add(10 * time.Second); ; {
+		f, err = os.OpenFile(path, os.O_RDWR, 0)
+		if !errors.Is(err, syscall.EBUSY) || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 	if err != nil {
+		if errors.Is(err, syscall.EBUSY) {
+			return nil, errors.New("modem port busy (ModemManager or another esimctl is using it)")
+		}
 		return nil, err
 	}
 	d := &Device{f: f, Timeout: 30 * time.Second}
