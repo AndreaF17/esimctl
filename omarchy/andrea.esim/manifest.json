@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "andrea.esim",
-  "name": "eSIM",
+  "name": "Mobile",
   "version": "1.0.0",
-  "description": "Switch, add and manage eSIM profiles on the built-in modem",
+  "description": "Mobile data, SIM slots, eSIM profiles and GPS of the built-in cellular modem",
   "kinds": ["bar-widget"],
   "entryPoints": {"barWidget": "Panel.qml"},
-  "barWidget": {"displayName": "eSIM", "description": "eSIM profiles of the WWAN modem", "category": "Network", "allowMultiple": false, "defaultSection": "right"}
+  "barWidget": {"displayName": "Mobile", "description": "Cellular modem: data, SIM, eSIM and GPS", "category": "Network", "allowMultiple": false, "defaultSection": "right"}
 }
