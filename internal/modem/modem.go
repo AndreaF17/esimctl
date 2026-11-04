@@ -45,6 +45,7 @@ type Status struct {
 	Roaming        bool     `json:"roaming"`
 	UnlockRequired string   `json:"unlock_required,omitempty"` // e.g. "sim-pin"
 	UnlockRetries  int      `json:"unlock_retries,omitempty"`
+	PINLock        bool     `json:"pin_lock"` // PIN requested at power-on
 	PrimarySlot    int      `json:"primary_slot"`
 	Slots          []Slot   `json:"slots"`
 	OwnNumbers     []string `json:"own_numbers,omitempty"`
@@ -136,10 +137,11 @@ func Get() (*Status, error) {
 				UnlockRetries   []string               `json:"unlock-retries"`
 			} `json:"generic"`
 			GPP struct {
-				IMEI         string `json:"imei"`
-				OperatorCode string `json:"operator-code"`
-				OperatorName string `json:"operator-name"`
-				Registration string `json:"registration-state"`
+				EnabledLocks []string `json:"enabled-locks"`
+				IMEI         string   `json:"imei"`
+				OperatorCode string   `json:"operator-code"`
+				OperatorName string   `json:"operator-name"`
+				Registration string   `json:"registration-state"`
 			} `json:"3gpp"`
 		} `json:"modem"`
 	}
@@ -156,6 +158,9 @@ func Get() (*Status, error) {
 		Operator: val(gp.OperatorName), OperatorCode: val(gp.OperatorCode),
 		Registration: val(gp.Registration), Roaming: val(gp.Registration) == "roaming",
 		PrimarySlot: atoi(g.PrimarySimSlot), OwnNumbers: g.OwnNumbers,
+	}
+	for _, l := range gp.EnabledLocks {
+		st.PINLock = st.PINLock || l == "sim" || l == "sim-pin"
 	}
 	if st.IMEI == "" {
 		st.IMEI = val(g.EquipmentID)
