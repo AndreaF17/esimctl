@@ -10,9 +10,13 @@ install -Dm755 esimctl ~/.local/bin/esimctl
 mkdir -p ~/.config/omarchy/plugins/andrea.esim
 cp omarchy/andrea.esim/* ~/.config/omarchy/plugins/andrea.esim/
 
-if ! cmp -s contrib/70-esimctl.rules /etc/udev/rules.d/70-esimctl.rules; then
-  echo "Installing udev rule (needs root)…"
-  pkexec sh -c "install -m644 '$PWD/contrib/70-esimctl.rules' /etc/udev/rules.d/ && udevadm control --reload && udevadm trigger --subsystem-match=wwan"
+if ! cmp -s contrib/70-esimctl.rules /etc/udev/rules.d/70-esimctl.rules ||
+  ! cmp -s contrib/esimctl-modemmanager.conf /etc/dbus-1/system.d/esimctl-modemmanager.conf; then
+  echo "Installing udev rule and D-Bus policy (needs root)…"
+  pkexec sh -c "install -m644 '$PWD/contrib/70-esimctl.rules' /etc/udev/rules.d/ &&
+    install -Dm644 '$PWD/contrib/esimctl-modemmanager.conf' /etc/dbus-1/system.d/esimctl-modemmanager.conf &&
+    udevadm control --reload && udevadm trigger --subsystem-match=wwan --subsystem-match=gnss &&
+    systemctl reload dbus"
 fi
 
 if command -v omarchy >/dev/null && ! grep -q '"andrea.esim"' ~/.config/omarchy/shell.json 2>/dev/null; then

@@ -171,6 +171,7 @@ func cmdSIM(args []string) error {
 		if err := st.SendPIN(args[1]); err != nil {
 			return err
 		}
+		syncAfterSIMChange()
 		return done("SIM unlocked")
 	case "puk":
 		if len(args) != 3 {
@@ -179,6 +180,7 @@ func cmdSIM(args []string) error {
 		if err := st.SendPUK(args[1], args[2]); err != nil {
 			return err
 		}
+		syncAfterSIMChange()
 		return done("SIM unblocked, new PIN set")
 	case "pin-lock":
 		if len(args) != 3 || (args[1] != "on" && args[1] != "off") {
@@ -200,16 +202,17 @@ func cmdSIM(args []string) error {
 	return fmt.Errorf("sim: unknown subcommand %q (slot, pin, puk, pin-lock, change-pin)", args[0])
 }
 
-// syncAfterSIMChange re-resolves the automatic APN once ModemManager has
-// re-probed the modem with the new SIM.
+// syncAfterSIMChange re-resolves the automatic APN once the active SIM can
+// be read: after a slot switch ModemManager re-probes the modem, and a SIM
+// unlocked with its PIN only then reveals its IMSI and home network.
 func syncAfterSIMChange() {
-	for i := 0; i < 15; i++ {
+	for i := 0; i < 20; i++ {
 		time.Sleep(2 * time.Second)
 		st, err := modem.Get()
-		if err != nil || st.State == "" || st.State == "initializing" {
+		if err != nil || st.State == "" || st.State == "initializing" || st.UnlockRequired != "" {
 			continue
 		}
-		if _, ok := st.ActiveSlot(); ok {
+		if s, ok := st.ActiveSlot(); ok && (s.IMSI != "" || s.HomeCode != "") {
 			_, _ = modem.Apply(st, modem.LoadSettings())
 			return
 		}

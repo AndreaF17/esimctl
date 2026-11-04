@@ -17,6 +17,7 @@ import (
 
 	"github.com/AndreaF17/esimctl/internal/euicc"
 	"github.com/AndreaF17/esimctl/internal/lpa"
+	"github.com/AndreaF17/esimctl/internal/modem"
 	"github.com/AndreaF17/esimctl/internal/qr"
 )
 
@@ -234,7 +235,39 @@ func openSession() (*lpa.Session, error) {
 	if g.debug {
 		dbg = os.Stderr
 	}
+	if err := esimSlotActive(); err != nil {
+		return nil, err
+	}
 	return lpa.Open(g.transport, g.device, dbg)
+}
+
+// ErrESIMInactive means the modem is using another SIM slot, so the eUICC is
+// powered down and can't be managed.
+type ErrESIMInactive struct{ Slot int }
+
+func (e ErrESIMInactive) Error() string {
+	return fmt.Sprintf("the eSIM is in slot %d, which is not in use; switch to it with: esimctl sim slot %d", e.Slot, e.Slot)
+}
+
+// esimSlotActive checks, through ModemManager, that the eSIM is the SIM in
+// use: the modem powers a single slot at a time.
+func esimSlotActive() error {
+	if !lpa.ModemManagerRunning() {
+		return nil
+	}
+	st, err := modem.Get()
+	if err != nil {
+		return nil // let the eUICC access itself report the problem
+	}
+	if s, ok := st.ActiveSlot(); ok && s.Type == "esim" {
+		return nil
+	}
+	for _, s := range st.Slots {
+		if s.Type == "esim" {
+			return ErrESIMInactive{Slot: s.Index}
+		}
+	}
+	return nil
 }
 
 func withSession(f func(*lpa.Session) error) error {

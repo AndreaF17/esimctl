@@ -367,7 +367,9 @@ Panel {
       Text {
         width: parent.width
         visible: root.profiles.length === 0
-        text: root.esim.error ? root.esim.error : "No eSIM profiles. Scan your carrier's QR code to add one."
+        text: !root.esim.error ? "No eSIM profiles. Scan your carrier's QR code to add one."
+              : root.esim.error.indexOf("which is not in use") >= 0 ? "The eSIM slot is not in use. Select it above to manage eSIM profiles."
+              : root.esim.error
         textFormat: Text.PlainText
         wrapMode: Text.WordWrap
         color: Qt.darker(root.fg, 1.4)

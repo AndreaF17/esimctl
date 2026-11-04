@@ -626,7 +626,13 @@ func (m model) submit(v string) (tea.Model, tea.Cmd) {
 		if !pinRE.MatchString(v) {
 			return needPIN(inputPIN, "the PIN")
 		}
-		return m, m.start("unlocking the SIM", modemOp("SIM unlocked", func(st *modem.Status) error { return st.SendPIN(v) }))
+		return m, m.start("unlocking the SIM", modemOp("SIM unlocked", func(st *modem.Status) error {
+			if err := st.SendPIN(v); err != nil {
+				return err
+			}
+			syncAfterSIMChange()
+			return nil
+		}))
 	case inputPUK:
 		if !regexp.MustCompile(`^[0-9]{8}$`).MatchString(v) {
 			return m, m.setStatus("the PUK must be 8 digits", false)
@@ -639,7 +645,13 @@ func (m model) submit(v string) (tea.Model, tea.Cmd) {
 		}
 		puk := m.pending["puk"]
 		clear(m.pending)
-		return m, m.start("unblocking the SIM", modemOp("SIM unblocked, new PIN set", func(st *modem.Status) error { return st.SendPUK(puk, v) }))
+		return m, m.start("unblocking the SIM", modemOp("SIM unblocked, new PIN set", func(st *modem.Status) error {
+			if err := st.SendPUK(puk, v); err != nil {
+				return err
+			}
+			syncAfterSIMChange()
+			return nil
+		}))
 	case inputLockPIN:
 		if !pinRE.MatchString(v) {
 			return needPIN(inputLockPIN, "the PIN")
@@ -1201,6 +1213,11 @@ func (m model) viewProfiles() string {
 	var b strings.Builder
 	if m.info.EID != "" {
 		b.WriteString("   " + st.muted.Render(fmt.Sprintf("EID %s · %d KiB free", m.info.EID, m.info.Info.FreeNVM/1024)) + "\n\n")
+	}
+	var inactive ErrESIMInactive
+	if errors.As(m.esimErr, &inactive) {
+		return b.String() + " " + st.text.Render(fmt.Sprintf("The eSIM is in slot %d, which is not in use: the modem powers one SIM at a time.", inactive.Slot)) +
+			"\n " + st.muted.Render("Switch to it from the SIM tab to manage eSIM profiles.") + "\n"
 	}
 	if m.esimErr != nil {
 		return b.String() + " " + st.err.Render("✗ ") + st.text.Render(m.esimErr.Error()) + "\n"

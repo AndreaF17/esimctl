@@ -84,3 +84,14 @@ func TestCleanError(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 }
+
+func TestBlockingLock(t *testing.T) {
+	for in, want := range map[string]string{
+		"none": "", "sim-pin2": "", "sim-puk2": "", "": "",
+		"sim-pin": "sim-pin", "sim-puk": "sim-puk", "ph-net-pin": "ph-net-pin",
+	} {
+		if got := blockingLock(in); got != want {
+			t.Errorf("%q -> %q, want %q", in, got, want)
+		}
+	}
+}

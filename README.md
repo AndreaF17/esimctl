@@ -5,7 +5,8 @@ SGP.22 LPA), physical SIM and slot switching, PIN, mobile data with automatic
 APN selection, and GPS. It comes with a terminal UI and an
 [Omarchy](https://omarchy.org) bar widget.
 
-Developed on a ThinkPad X1 Carbon Gen 12 with a Quectel EM160R-GL.
+Developed and tested on a ThinkPad X1 Carbon Gen 12 with a Quectel EM160R-GL,
+on Iliad (Italy) with a physical SIM.
 
 ## How it works
 
@@ -26,9 +27,13 @@ Developed on a ThinkPad X1 Carbon Gen 12 with a Quectel EM160R-GL.
     ./install.sh
 
 `install.sh` builds `~/.local/bin/esimctl`, installs the `andrea.esim` bar
-widget, and (once, via pkexec) `contrib/70-esimctl.rules`, which gives the
-logged-in user the modem's AT and NMEA ports and tells ModemManager to leave
-the AT port to esimctl.
+widget, and (once, via pkexec):
+
+- `contrib/70-esimctl.rules`, which gives the logged-in user the modem's AT
+  and NMEA ports and tells ModemManager to leave the AT port to esimctl;
+- `contrib/esimctl-modemmanager.conf`, a D-Bus policy that lets `wheel`
+  users switch SIM slots (ModemManager allows only root by default; it still
+  checks its polkit rule).
 
 ### FCC unlock (Lenovo)
 
@@ -64,6 +69,10 @@ Every command accepts `--json`; `--debug` dumps modem traffic.
   answering. `esimctl gps on` routes NMEA output nowhere and esimctl reads
   positions over AT instead. If the AT port ever stops answering, restart the
   modem with `esimctl modem off && esimctl modem on`.
+- The modem powers one SIM slot at a time: eSIM profiles can only be managed
+  while the eSIM slot is in use (`esimctl sim slot <n>`).
+- ModemManager reports `sim-pin2` as "unlock required" on usable SIMs; PIN2
+  only guards special SIM functions, so esimctl doesn't treat it as a lock.
 - The kernel lets several processes open the AT port at once; esimctl
   serializes its own instances with a lock on the device.
 - Enabling or disabling an eSIM profile refreshes the SIM; esimctl then

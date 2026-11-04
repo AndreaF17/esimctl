@@ -165,9 +165,7 @@ func Get() (*Status, error) {
 	if st.IMEI == "" {
 		st.IMEI = val(g.EquipmentID)
 	}
-	if u := val(g.UnlockRequired); u != "none" {
-		st.UnlockRequired = u
-	}
+	st.UnlockRequired = blockingLock(val(g.UnlockRequired))
 	for _, r := range g.UnlockRetries { // "sim-pin (3)"
 		if st.UnlockRequired != "" && strings.HasPrefix(r, st.UnlockRequired+" (") {
 			st.UnlockRetries = atoi(strings.TrimSuffix(strings.TrimPrefix(r, st.UnlockRequired+" ("), ")"))
@@ -194,6 +192,17 @@ func Get() (*Status, error) {
 		st.PrimarySlot = 1
 	}
 	return st, nil
+}
+
+// blockingLock filters ModemManager's unlock-required value down to locks
+// that actually keep the modem from working. PIN2/PUK2 only guard special
+// SIM functions (fixed dialing numbers) and are reported even on a usable SIM.
+func blockingLock(u string) string {
+	switch u {
+	case "", "none", "unknown", "sim-pin2", "sim-puk2":
+		return ""
+	}
+	return u
 }
 
 func fillSIM(s *Slot) {
