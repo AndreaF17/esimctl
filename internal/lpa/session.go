@@ -123,6 +123,17 @@ func openAT(path string, debug io.Writer) (*Session, error) {
 	u := at.NewUICC(p)
 	ch, err := u.OpenChannel(euicc.ISDR)
 	if err != nil {
+		// The ISD-R may be held by a channel an interrupted esimctl left open.
+		// Unlike MBIM, the AT port can close it.
+		if debug != nil {
+			fmt.Fprintln(debug, "ISD-R busy, closing stale logical channels")
+		}
+		for c := uint32(1); c <= 3; c++ {
+			_ = u.CloseChannel(c)
+		}
+		ch, err = u.OpenChannel(euicc.ISDR)
+	}
+	if err != nil {
 		p.Close()
 		return nil, fmt.Errorf("opening ISD-R channel: %w", err)
 	}
