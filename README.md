@@ -55,6 +55,8 @@ Quectel unlock script for your modem's PCI id (`lspci -nn`), for example:
     esimctl data on|off
     esimctl data apn auto             # or: esimctl data apn <apn> [user] [pass]
     esimctl data roaming on
+    esimctl data limit 10GB           # monthly cap; also: warn 80, day 15, action stop
+    esimctl data usage                # used this period
     esimctl gps on && esimctl gps
     esimctl sms                       # list; also read, send, delete
     esimctl sms send +391234567890 "On my way"
@@ -74,6 +76,15 @@ followed by a "Missed call" one. Laptop WWAN modules have no audio path to the
 computer, so calls can be seen and rejected but not answered. ModemManager
 doesn't track read state, so esimctl keeps it in
 `~/.local/state/esimctl/sms-read.json`.
+
+## Data limit
+
+`esimctl watch` counts the traffic of the modem's interface every 30 seconds
+(kernel counters, kept in `~/.local/state/esimctl/data-usage.json` across
+restarts and counter resets). With a limit set it notifies at the warning
+threshold (80% by default) and at the limit; with `action stop` it also turns
+mobile data off until the period resets, and `esimctl data on` refuses to turn
+it back on. Traffic from before the first count isn't known.
 
 ## Notes
 

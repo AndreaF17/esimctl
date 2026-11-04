@@ -62,6 +62,9 @@ Commands:
                               APN selection (auto: from the provider database)
   data apns [mccmnc]          known APNs for the active SIM's network
   data roaming|autoconnect on|off
+  data usage [reset]          mobile data used in the current period
+  data limit <size>|off       data cap, e.g. 10GB; also: warn <percent>,
+                              day <1-28> (monthly reset), action stop|warn
   sms [list|read <id>|send <number> <text>|delete <id>|mark-read]
                               text messages
   calls [list|hangup <id>]    voice calls (the modem has no audio path)

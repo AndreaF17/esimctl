@@ -22,6 +22,7 @@ type modemReport struct {
 	// SuggestedAPN is what automatic mode would use for the active SIM.
 	SuggestedAPN *modem.APN    `json:"suggested_apn,omitempty"`
 	Problem      string        `json:"problem,omitempty"`
+	Usage        *modem.Usage  `json:"usage,omitempty"`
 	Messages     int           `json:"messages"`
 	Unread       int           `json:"unread"`
 	GPS          *gnss.Fix     `json:"gps,omitempty"`
@@ -36,6 +37,9 @@ func getModemReport() (modemReport, error) {
 	}
 	r.Modem = st
 	r.Problem = st.Problem()
+	if u, err := modem.SampleUsage(time.Now()); err == nil {
+		r.Usage = &u
+	}
 	r.Connection, _ = modem.GetConnection()
 	r.Settings = modem.LoadSettings()
 	if msgs, err := modem.Messages(); err == nil {
@@ -154,6 +158,9 @@ func printModem(r modemReport) {
 	}
 	fmt.Printf("APN:        %s\n", apn)
 	fmt.Printf("Options:    autoconnect %s, roaming %s\n", onOff(r.Settings.Autoconnect), onOff(r.Settings.Roaming))
+	if u := r.Usage; u != nil {
+		fmt.Printf("Usage:      %s\n", usageLine(*u))
+	}
 	if f := r.GPS; f != nil {
 		switch {
 		case !f.Enabled:
@@ -276,6 +283,84 @@ func secretArg(args []string, i int, label string) (string, error) {
 	return strings.TrimSpace(line), nil
 }
 
+// limitBlocks reports whether the data cap keeps mobile data off.
+func limitBlocks(u modem.Usage) bool {
+	return u.Limit.Action == "stop" && u.Limit.Bytes > 0 && u.Bytes >= u.Limit.Bytes
+}
+
+func usageLine(u modem.Usage) string {
+	since := u.PeriodStart.Format("02 Jan")
+	if u.Limit.Bytes <= 0 {
+		return fmt.Sprintf("%s since %s (no limit)", modem.FormatSize(u.Bytes), since)
+	}
+	act := "warn"
+	if u.Limit.Action == "stop" {
+		act = "stop data"
+	}
+	line := fmt.Sprintf("%s of %s (%.0f%%) since %s, resets %s · warn at %d%%, %s at the limit",
+		modem.FormatSize(u.Bytes), modem.FormatSize(u.Limit.Bytes), u.Percent, since,
+		u.NextReset.Format("02 Jan"), u.Limit.WarnPercent, act)
+	if limitBlocks(u) {
+		line += " · DATA STOPPED"
+	}
+	return line
+}
+
+// cmdLimit configures the data cap: "10GB", "off", "warn 80", "day 15",
+// "action stop|warn".
+func cmdLimit(set *modem.Settings, args []string, save func(string) error) error {
+	if len(args) == 0 {
+		return errors.New("data limit: expected a size (10GB), off, warn <percent>, day <1-28> or action stop|warn")
+	}
+	l := &set.Limit
+	switch args[0] {
+	case "off":
+		l.Bytes = 0
+		return save("data limit off")
+	case "warn":
+		if len(args) != 2 {
+			return errors.New("data limit warn: expected a percentage")
+		}
+		p, err := strconv.Atoi(strings.TrimSuffix(args[1], "%"))
+		if err != nil || p < 1 || p > 99 {
+			return errors.New("data limit warn: percentage between 1 and 99")
+		}
+		l.WarnPercent = p
+		return save(fmt.Sprintf("warning at %d%% of the limit", p))
+	case "day":
+		if len(args) != 2 {
+			return errors.New("data limit day: expected the day of the month the count restarts")
+		}
+		d, err := strconv.Atoi(args[1])
+		if err != nil || d < 1 || d > 28 {
+			return errors.New("data limit day: between 1 and 28")
+		}
+		l.ResetDay = d
+		return save(fmt.Sprintf("usage count restarts on day %d of each month", d))
+	case "action":
+		if len(args) != 2 || (args[1] != "stop" && args[1] != "warn") {
+			return errors.New("data limit action: stop (disconnect at the limit) or warn")
+		}
+		l.Action = args[1]
+		return save("at the limit: " + args[1])
+	}
+	b, err := modem.ParseSize(strings.Join(args, ""))
+	if err != nil {
+		return err
+	}
+	l.Bytes = b
+	if l.WarnPercent == 0 {
+		l.WarnPercent = 80
+	}
+	if l.ResetDay == 0 {
+		l.ResetDay = 1
+	}
+	if l.Action == "" {
+		l.Action = "warn"
+	}
+	return save("data limit " + modem.FormatSize(b))
+}
+
 // syncAfterSIMChange re-resolves the automatic APN once the active SIM can
 // be read: after a slot switch ModemManager re-probes the modem, and a SIM
 // unlocked with its PIN only then reveals its IMSI and home network.
@@ -316,7 +401,25 @@ func cmdData(args []string) error {
 	switch sub {
 	case "status":
 		return cmdModem(nil)
+	case "usage":
+		if len(args) > 1 && args[1] == "reset" {
+			if err := modem.ResetUsage(); err != nil {
+				return err
+			}
+			return done("usage count reset for this period")
+		}
+		u, err := modem.SampleUsage(time.Now())
+		if err != nil {
+			return err
+		}
+		return output(u, func() { fmt.Println(usageLine(u)) })
+	case "limit":
+		return cmdLimit(&set, args[1:], save)
 	case "on", "connect", "up":
+		if u, err := modem.SampleUsage(time.Now()); err == nil && limitBlocks(u) {
+			return fmt.Errorf("data limit of %s reached; raise it (esimctl data limit <size>) or wait until %s",
+				modem.FormatSize(u.Limit.Bytes), u.NextReset.Format("02 Jan"))
+		}
 		st, err := modem.Get()
 		if err != nil {
 			return err

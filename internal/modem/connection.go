@@ -95,6 +95,7 @@ type Settings struct {
 	Password    string `json:"password,omitempty"`
 	Autoconnect bool   `json:"autoconnect"`
 	Roaming     bool   `json:"roaming"`
+	Limit       Limit  `json:"limit"`
 }
 
 func settingsPath() string {

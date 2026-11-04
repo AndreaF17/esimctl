@@ -53,18 +53,30 @@ Column {
     return modem.operator + " · " + (modem.access_tech || []).join("/").toUpperCase() + " · " + signal + "%"
   }
 
+  // "1.2 of 10 GB" when a data cap is set (esimctl data limit).
+  readonly property var usage: mobile.usage || null
+  function size(b) { return b >= 1e9 ? (b / 1e9).toFixed(b >= 1e10 ? 0 : 1) + " GB" : Math.round(b / 1e6) + " MB" }
+  readonly property string usageText: usage && usage.limit && usage.limit.bytes > 0
+    ? size(usage.bytes) + " of " + size(usage.limit.bytes) : ""
+  readonly property bool limitReached: !!usageText && usage.bytes >= usage.limit.bytes
+
   readonly property string status: {
     if (mobile.error) return mobile.error
     if (problem !== "") return problem.charAt(0).toUpperCase() + problem.slice(1).replace(/: esimctl sim slot \d+/, " in Mobile settings")
     if (locked) return "Enter the PIN in Mobile settings"
     if (!radioOn) return "Turn the radio on in Mobile settings"
+    var s
     if (connected) {
-      var s = "Connected" + (conn.ipv4 ? " · " + conn.ipv4 : "")
+      s = "Connected" + (conn.ipv4 ? " · " + conn.ipv4 : "")
       if (owner.kind !== "disconnected") s += " · backup"
       if (modem.roaming) s += " · roaming"
-      return s
+    } else if (limitReached && usage.limit.action === "stop") {
+      s = "Off · data limit reached"
+    } else {
+      s = registered ? "Off" : "Searching for a network…"
     }
-    return registered ? "Off" : "Searching for a network…"
+    if (usageText) s += " · " + usageText
+    return s
   }
 
   // ---- keyboard cursor: row 0 is data, row 1 messages.
@@ -158,7 +170,7 @@ Column {
     icon: root.icon
     title: root.title
     caption: root.status
-    captionColor: root.locked ? root.bar.urgent : Qt.darker(root.fg, 1.4)
+    captionColor: root.locked || root.limitReached ? root.bar.urgent : Qt.darker(root.fg, 1.4)
     checked: root.connected
     toggleBusy: root.busy
     toggleEnabled: !root.busy && !root.locked && root.radioOn

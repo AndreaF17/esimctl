@@ -67,6 +67,7 @@ const (
 	inputNewPINAgain
 	inputSMSNumber
 	inputSMSText
+	inputLimit
 )
 
 var inputLabels = map[inputPurpose]string{
@@ -75,6 +76,7 @@ var inputLabels = map[inputPurpose]string{
 	inputPIN: "SIM PIN", inputPUK: "PUK", inputPUKNewPIN: "New PIN",
 	inputLockPIN: "SIM PIN", inputOldPIN: "Current PIN", inputNewPIN: "New PIN",
 	inputNewPINAgain: "New PIN again", inputSMSNumber: "To (phone number)", inputSMSText: "Message",
+	inputLimit: "Monthly data limit (e.g. 10GB, or off)",
 }
 
 // Mobile tab rows.
@@ -83,6 +85,8 @@ const (
 	rowAPN
 	rowRoaming
 	rowAutoconnect
+	rowLimit
+	rowLimitAction
 	rowRadio
 	rowGPS
 	mobileRows
@@ -735,6 +739,27 @@ func (m model) submit(v string) (tea.Model, tea.Cmd) {
 		}
 		m.pending["new"] = v
 		return m, m.ask(inputNewPINAgain, "repeat the new PIN", "")
+	case inputLimit:
+		set := modem.LoadSettings()
+		if v == "" || strings.EqualFold(v, "off") {
+			set.Limit.Bytes = 0
+			return m, m.applySettings(set, "data limit off")
+		}
+		b, err := modem.ParseSize(v)
+		if err != nil {
+			return m, m.setStatus(err.Error(), false)
+		}
+		set.Limit.Bytes = b
+		if set.Limit.WarnPercent == 0 {
+			set.Limit.WarnPercent = 80
+		}
+		if set.Limit.ResetDay == 0 {
+			set.Limit.ResetDay = 1
+		}
+		if set.Limit.Action == "" {
+			set.Limit.Action = "warn"
+		}
+		return m, m.applySettings(set, "data limit "+modem.FormatSize(b))
 	case inputSMSNumber:
 		if v == "" {
 			return m, nil
@@ -823,6 +848,19 @@ func (m model) mobileKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case rowAutoconnect:
 		set.Autoconnect = !set.Autoconnect
 		return m, m.applySettings(set, "autoconnect "+onOff(set.Autoconnect))
+	case rowLimit:
+		cur := ""
+		if set.Limit.Bytes > 0 {
+			cur = modem.FormatSize(set.Limit.Bytes)
+		}
+		return m, m.ask(inputLimit, "off", cur)
+	case rowLimitAction:
+		if set.Limit.Action == "stop" {
+			set.Limit.Action = "warn"
+		} else {
+			set.Limit.Action = "stop"
+		}
+		return m, m.applySettings(set, "at the limit: "+set.Limit.Action)
 	case rowRadio:
 		on := !radioOn(md)
 		return m, m.start("turning the radio "+onOff(on), modemOp("radio "+onOff(on), func(st *modem.Status) error {
@@ -1225,6 +1263,16 @@ func (m model) viewMobile() string {
 	} else if radioOn(md) {
 		kv("Network", "searching…")
 	}
+	if u := m.mobile.Usage; u != nil {
+		used := modem.FormatSize(u.Bytes) + " since " + u.PeriodStart.Format("02 Jan")
+		if u.Limit.Bytes > 0 {
+			used = fmt.Sprintf("%s of %s (%.0f%%) · resets %s", modem.FormatSize(u.Bytes), modem.FormatSize(u.Limit.Bytes), u.Percent, u.NextReset.Format("02 Jan"))
+			if limitBlocks(*u) {
+				used += " · data stopped"
+			}
+		}
+		kv("Used", used)
+	}
 	if m.gps.Valid {
 		kv("Location", fmt.Sprintf("%.6f, %.6f  ±%.1f HDOP, %.0f m", m.gps.Lat, m.gps.Lon, m.gps.HDOP, m.gps.Alt))
 	} else if lf := m.mobile.LastFix; lf != nil {
@@ -1253,6 +1301,17 @@ func (m model) viewMobile() string {
 	b.WriteString(m.row(tabMobile, rowAPN, "APN", st.text.Render(apn), apnDetail))
 	b.WriteString(m.row(tabMobile, rowRoaming, "Data roaming", m.toggle(set.Roaming), ""))
 	b.WriteString(m.row(tabMobile, rowAutoconnect, "Autoconnect", m.toggle(set.Autoconnect), ""))
+	limit, limitDetail := st.muted.Render("off"), ""
+	if set.Limit.Bytes > 0 {
+		limit = st.text.Render(modem.FormatSize(set.Limit.Bytes))
+		limitDetail = fmt.Sprintf("warn at %d%% · resets on day %d (esimctl data limit warn|day)", set.Limit.WarnPercent, set.Limit.ResetDay)
+	}
+	b.WriteString(m.row(tabMobile, rowLimit, "Data limit", limit, limitDetail))
+	action := "warn only"
+	if set.Limit.Action == "stop" {
+		action = "turn data off"
+	}
+	b.WriteString(m.row(tabMobile, rowLimitAction, "At the limit", st.text.Render(action), ""))
 	b.WriteString(m.row(tabMobile, rowRadio, "Cellular radio", m.toggle(radioOn(md)), ""))
 	gpsDetail := ""
 	switch {

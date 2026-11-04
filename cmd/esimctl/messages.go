@@ -186,6 +186,8 @@ func cmdWatch(ctx context.Context) error {
 			}
 		},
 	}
+	go watchUsage(ctx, n)
+
 	// ModemManager may be restarting or the modem re-probing: keep trying.
 	for ctx.Err() == nil {
 		if err := modem.Watch(ctx, ev); err != nil && !g.quiet {
@@ -197,6 +199,70 @@ func cmdWatch(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// watchUsage counts mobile data every 30 seconds and enforces the data cap:
+// a notification at the warning threshold, another at the limit, and with
+// action "stop" mobile data is disconnected (again after a reboot, too).
+func watchUsage(ctx context.Context, n *notify.Notifier) {
+	tick := time.NewTicker(30 * time.Second)
+	defer tick.Stop()
+	for {
+		if u, err := modem.SampleUsage(time.Now()); err == nil && u.Limit.Bytes > 0 {
+			enforceLimit(u, n)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+// shower is the part of notify.Notifier enforceLimit needs (fake in tests).
+type shower interface {
+	Show(notify.Notification) (uint32, error)
+}
+
+// Overridable in tests.
+var (
+	saveUsageFlags   = modem.UpdateUsageFlags
+	mobileDataActive = func() bool { c, err := modem.GetConnection(); return err == nil && c.Active }
+	stopMobileData   = modem.Disconnect
+)
+
+func enforceLimit(u modem.Usage, n shower) {
+	used := modem.FormatSize(u.Bytes) + " of " + modem.FormatSize(u.Limit.Bytes)
+	warned, stopped := u.Warned, u.Stopped
+	if u.Percent >= float64(u.Limit.WarnPercent) && !warned {
+		warned = true
+		_, _ = n.Show(notify.Notification{
+			App: "Mobile data", Icon: "network-cellular-signal-good",
+			Summary: fmt.Sprintf("%.0f%% of your mobile data used", u.Percent),
+			Body:    used + " · resets " + u.NextReset.Format("02 Jan"),
+			Urgency: 1, Timeout: -1,
+		})
+	}
+	if u.Bytes >= u.Limit.Bytes && !stopped {
+		stopped = true
+		body := used + ". "
+		if u.Limit.Action == "stop" {
+			body += "Mobile data has been turned off until " + u.NextReset.Format("02 Jan") + "."
+		} else {
+			body += "Mobile data stays on."
+		}
+		_, _ = n.Show(notify.Notification{
+			App: "Mobile data", Icon: "network-cellular-offline",
+			Summary: "Mobile data limit reached", Body: body,
+			Urgency: 2, Timeout: -1,
+		})
+	}
+	if warned != u.Warned || stopped != u.Stopped {
+		_ = saveUsageFlags(warned, stopped)
+	}
+	if limitBlocks(u) && mobileDataActive() {
+		_ = stopMobileData()
+	}
 }
 
 // self returns the path of the running esimctl binary.
