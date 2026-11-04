@@ -1,5 +1,7 @@
-# Give the logged-in user access to the modem's MBIM control port (eSIM
-# management), its AT port (GNSS on/off) and its NMEA port (GNSS fixes).
+# Give the logged-in user access to the modem's MBIM control port, its AT port
+# and its NMEA port. ModemManager is told to leave the AT port alone: it drives
+# the modem over MBIM, while esimctl uses the AT port for eSIM APDUs (AT+CGLA)
+# and GNSS (AT+QGPS) without contending with it.
 SUBSYSTEM=="wwan", KERNEL=="wwan[0-9]*mbim[0-9]*", TAG+="uaccess"
-SUBSYSTEM=="wwan", KERNEL=="wwan[0-9]*at[0-9]*", TAG+="uaccess"
+SUBSYSTEM=="wwan", KERNEL=="wwan[0-9]*at[0-9]*", TAG+="uaccess", ENV{ID_MM_PORT_IGNORE}="1"
 SUBSYSTEM=="gnss", KERNEL=="gnss[0-9]*", TAG+="uaccess"
