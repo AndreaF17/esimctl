@@ -21,6 +21,7 @@ type modemReport struct {
 	Settings   modem.Settings   `json:"settings"`
 	// SuggestedAPN is what automatic mode would use for the active SIM.
 	SuggestedAPN *modem.APN    `json:"suggested_apn,omitempty"`
+	Problem      string        `json:"problem,omitempty"`
 	Messages     int           `json:"messages"`
 	Unread       int           `json:"unread"`
 	GPS          *gnss.Fix     `json:"gps,omitempty"`
@@ -34,6 +35,7 @@ func getModemReport() (modemReport, error) {
 		return r, err
 	}
 	r.Modem = st
+	r.Problem = st.Problem()
 	r.Connection, _ = modem.GetConnection()
 	r.Settings = modem.LoadSettings()
 	if msgs, err := modem.Messages(); err == nil {
@@ -105,6 +107,9 @@ func printModem(r modemReport) {
 	st, c := r.Modem, r.Connection
 	fmt.Printf("Modem:      %s %s (firmware %s)\n", st.Manufacturer, st.Model, st.Firmware)
 	fmt.Printf("State:      %s, power %s\n", st.State, st.Power)
+	if r.Problem != "" {
+		fmt.Printf("Problem:    %s\n", r.Problem)
+	}
 	if st.UnlockRequired != "" {
 		fmt.Printf("Locked:     %s required (%d attempts left)\n", st.UnlockRequired, st.UnlockRetries)
 	}

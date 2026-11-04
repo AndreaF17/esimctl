@@ -31,6 +31,7 @@ Column {
   readonly property int unread: mobile.unread || 0
   readonly property bool busy: actionProc.running
   property string message: ""
+  property int failures: 0
 
   // Cellular signal bars (0-3), also used by the bar icon when mobile data is
   // the only link.
@@ -41,8 +42,11 @@ Column {
     return signal >= 67 ? "\u{F08BE}" : signal >= 34 ? "\u{F08BD}" : signal > 0 ? "\u{F08BC}" : "\u{F08BF}"
   }
 
+  readonly property string problem: mobile.problem || ""
   readonly property string title: {
     if (!modem) return "Mobile data"
+    if (problem.indexOf("no SIM") === 0) return "No SIM"
+    if (problem !== "") return "Modem unavailable"
     if (locked) return "SIM locked"
     if (!radioOn) return "Radio off"
     if (!registered) return "No network"
@@ -51,6 +55,7 @@ Column {
 
   readonly property string status: {
     if (mobile.error) return mobile.error
+    if (problem !== "") return problem.charAt(0).toUpperCase() + problem.slice(1).replace(/: esimctl sim slot \d+/, " in Mobile settings")
     if (locked) return "Enter the PIN in Mobile settings"
     if (!radioOn) return "Turn the radio on in Mobile settings"
     if (connected) {
@@ -105,7 +110,15 @@ Column {
     command: [root.esimctl, "--json", "modem"]
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: { try { root.mobile = JSON.parse(text) } catch (e) { root.mobile = ({}) } }
+      onStreamFinished: {
+        var next
+        try { next = JSON.parse(text) } catch (e) { next = ({ error: "modem status unavailable" }) }
+        // ModemManager re-probes the modem after a SIM change and it vanishes
+        // for a few seconds each time: keep the last state through blips.
+        if (next.error && root.modem && ++root.failures < 3) return
+        root.failures = 0
+        root.mobile = next
+      }
     }
   }
   Process {

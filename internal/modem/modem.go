@@ -59,7 +59,7 @@ type Status struct {
 }
 
 // ErrNoModem is returned when ModemManager knows no modem.
-var ErrNoModem = errors.New("no modem found (is ModemManager running?)")
+var ErrNoModem = errors.New("no modem found (is ModemManager running? it may also be restarting the modem after a SIM change)")
 
 func run(name string, args ...string) ([]byte, error) {
 	cmd := exec.Command(name, args...)
@@ -110,7 +110,25 @@ func atoi(s string) int {
 }
 
 // Get returns the state of the first modem.
+// Get returns the state of the first modem. After a SIM is inserted or
+// removed ModemManager probes the modem again, and for a few seconds at a
+// time there is no modem (or the one just listed is gone): wait it out.
 func Get() (*Status, error) {
+	var err error
+	for i := 0; i < 8; i++ {
+		var st *Status
+		if st, err = getOnce(); err == nil {
+			return st, nil
+		}
+		if !errors.Is(err, ErrNoModem) && !strings.Contains(err.Error(), "couldn't find modem") {
+			return nil, err
+		}
+		time.Sleep(time.Second)
+	}
+	return nil, err
+}
+
+func getOnce() (*Status, error) {
 	var list struct {
 		ModemList []string `json:"modem-list"`
 	}
@@ -234,6 +252,37 @@ func fillSIM(s *Slot) {
 	if s.Type == "" {
 		s.Type = "physical"
 	}
+}
+
+// Problem explains, for people, why the modem can't be used right now, or
+// returns "" when nothing is wrong.
+func (st *Status) Problem() string {
+	if st.State != "failed" {
+		return ""
+	}
+	switch st.FailedReason {
+	case "sim-missing":
+		msg := fmt.Sprintf("no SIM in slot %d", st.PrimarySlot)
+		for _, s := range st.Slots {
+			if s.Present && s.Index != st.PrimarySlot {
+				kind := "SIM card"
+				if s.Type == "esim" {
+					kind = "eSIM"
+				}
+				msg += fmt.Sprintf("; insert one, or use the %s in slot %d: esimctl sim slot %d", kind, s.Index, s.Index)
+				return msg
+			}
+		}
+		return msg + "; insert a SIM card"
+	case "sim-error":
+		return "the SIM can't be read; reinsert it"
+	case "unknown-capabilities", "esim-without-profiles":
+		return "the eSIM has no enabled profile; enable one with esimctl tui (eSIM tab)"
+	}
+	if st.FailedReason != "" {
+		return "modem failed: " + st.FailedReason
+	}
+	return "modem failed"
 }
 
 // MCCMNC returns the home network code of the active SIM. The IMSI prefix
