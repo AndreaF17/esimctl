@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/andrea/esimctl/internal/euicc"
-	"github.com/andrea/esimctl/internal/mbim"
+	"github.com/AndreaF17/esimctl/internal/euicc"
+	"github.com/AndreaF17/esimctl/internal/mbim"
 )
 
 // Session is an open ISD-R channel on the modem's eUICC.

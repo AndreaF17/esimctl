@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/andrea/esimctl/internal/tlv"
+	"github.com/AndreaF17/esimctl/internal/tlv"
 )
 
 // ISDR is the AID of the eUICC's ISD-R (the LPA-facing RSP application).

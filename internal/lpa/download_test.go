@@ -14,9 +14,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/andrea/esimctl/internal/es9p"
-	"github.com/andrea/esimctl/internal/euicc"
-	"github.com/andrea/esimctl/internal/tlv"
+	"github.com/AndreaF17/esimctl/internal/es9p"
+	"github.com/AndreaF17/esimctl/internal/euicc"
+	"github.com/AndreaF17/esimctl/internal/tlv"
 )
 
 const testTID = "0A0B0C0D"

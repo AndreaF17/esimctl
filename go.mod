@@ -1,4 +1,4 @@
-module github.com/andrea/esimctl
+module github.com/AndreaF17/esimctl
 
 go 1.27.3
 

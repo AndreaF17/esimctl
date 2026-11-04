@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/andrea/esimctl/internal/tlv"
+	"github.com/AndreaF17/esimctl/internal/tlv"
 )
 
 // Profile is one entry of the eUICC profile list.

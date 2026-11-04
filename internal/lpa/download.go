@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/andrea/esimctl/internal/es9p"
-	"github.com/andrea/esimctl/internal/euicc"
-	"github.com/andrea/esimctl/internal/tlv"
+	"github.com/AndreaF17/esimctl/internal/es9p"
+	"github.com/AndreaF17/esimctl/internal/euicc"
+	"github.com/AndreaF17/esimctl/internal/tlv"
 )
 
 // ActivationCode is a parsed "LPA:1$<smdp>$<matching id>[$<oid>[$<cc flag>]]" code.

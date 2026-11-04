@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/andrea/esimctl/internal/tlv"
+	"github.com/AndreaF17/esimctl/internal/tlv"
 )
 
 func TestICCID(t *testing.T) {

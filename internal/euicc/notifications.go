@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/andrea/esimctl/internal/tlv"
+	"github.com/AndreaF17/esimctl/internal/tlv"
 )
 
 // Notification describes a pending profile-management notification.
