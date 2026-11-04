@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/AndreaF17/esimctl/internal/textutil"
 	"github.com/AndreaF17/esimctl/internal/tlv"
 )
 
@@ -76,11 +77,11 @@ func parseProfile(e tlv.TLV) Profile {
 		case 0x9F70:
 			p.Enabled = tlv.Int(k.Value) == 1
 		case 0x90:
-			p.Nickname = string(k.Value)
+			p.Nickname = textutil.Line(string(k.Value))
 		case 0x91:
-			p.Provider = string(k.Value)
+			p.Provider = textutil.Line(string(k.Value))
 		case 0x92:
-			p.Name = string(k.Value)
+			p.Name = textutil.Line(string(k.Value))
 		case 0x93:
 			p.IconType = map[int]string{0: "jpg", 1: "png"}[tlv.Int(k.Value)]
 		case 0x94:

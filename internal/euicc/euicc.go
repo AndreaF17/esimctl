@@ -48,7 +48,10 @@ func (c *Card) transmit(apdu []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	for sw>>8 == 0x61 {
+	for i := 0; sw>>8 == 0x61; i++ {
+		if i >= 64 || len(resp) > 1<<16 {
+			return nil, errors.New("euicc: card keeps announcing more data")
+		}
 		le := byte(sw)
 		more, sw2, err := c.t.Transmit(c.ch, []byte{c.cla(false), 0xC0, 0x00, 0x00, le})
 		if err != nil {

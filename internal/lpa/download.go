@@ -10,6 +10,7 @@ import (
 
 	"github.com/AndreaF17/esimctl/internal/es9p"
 	"github.com/AndreaF17/esimctl/internal/euicc"
+	"github.com/AndreaF17/esimctl/internal/textutil"
 	"github.com/AndreaF17/esimctl/internal/tlv"
 )
 
@@ -26,6 +27,9 @@ func ParseActivationCode(s string) (ActivationCode, error) {
 	parts := strings.Split(s, "$")
 	if len(parts) < 2 || parts[0] != "1" || parts[1] == "" {
 		return ActivationCode{}, errors.New("invalid activation code (expected LPA:1$smdp$matchingId)")
+	}
+	if !es9p.ValidAddress(parts[1]) {
+		return ActivationCode{}, fmt.Errorf("invalid SM-DP+ address %q in activation code", parts[1])
 	}
 	ac := ActivationCode{SMDP: parts[1]}
 	if len(parts) > 2 {
@@ -197,9 +201,9 @@ func parseMetadata(m tlv.TLV) ProfileMetadata {
 		case 0x5A:
 			p.ICCID = euicc.DecodeICCID(k.Value)
 		case 0x91:
-			p.Provider = string(k.Value)
+			p.Provider = textutil.Line(string(k.Value))
 		case 0x92:
-			p.Name = string(k.Value)
+			p.Name = textutil.Line(string(k.Value))
 		case 0x93:
 			p.IconType = map[int]string{0: "jpg", 1: "png"}[tlv.Int(k.Value)]
 		case 0x94:

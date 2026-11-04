@@ -551,8 +551,10 @@ func (m model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.busy {
+		// Quitting mid-operation would abandon an eSIM download or profile
+		// switch halfway; ctrl+c (handled above) still forces it.
 		if k.String() == "q" {
-			return m, tea.Quit
+			return m, m.setStatus("an operation is in progress; press ctrl+c to force quit", false)
 		}
 		return m, nil
 	}
@@ -1466,8 +1468,9 @@ func help(st styles, w int, pairs ...string) string {
 }
 
 func wrap(s string, w int) string {
-	if w < 20 || len(s) <= w {
+	r := []rune(s)
+	if w < 20 || len(r) <= w {
 		return s
 	}
-	return s[:w-1] + "…"
+	return string(r[:w-1]) + "…"
 }

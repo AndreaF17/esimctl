@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/AndreaF17/esimctl/internal/textutil"
 	"github.com/AndreaF17/esimctl/internal/tlv"
 )
 
@@ -34,7 +35,7 @@ func parseMetadata(m tlv.TLV) Notification {
 				}
 			}
 		case 0x0C:
-			n.Address = string(k.Value)
+			n.Address = textutil.Line(string(k.Value))
 		case 0x5A:
 			n.ICCID = DecodeICCID(k.Value)
 		}

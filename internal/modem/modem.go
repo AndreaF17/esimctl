@@ -11,6 +11,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/godbus/dbus/v5"
+
+	"github.com/AndreaF17/esimctl/internal/textutil"
 )
 
 // Slot is one SIM slot of the modem.
@@ -155,7 +159,7 @@ func Get() (*Status, error) {
 		Firmware: val(g.Revision), IMEI: val(gp.IMEI), State: val(g.State),
 		FailedReason: val(g.StateFailReason), Power: val(g.PowerState),
 		Signal: atoi(g.SignalQuality.Value), AccessTech: g.AccessTech,
-		Operator: val(gp.OperatorName), OperatorCode: val(gp.OperatorCode),
+		Operator: textutil.Line(val(gp.OperatorName)), OperatorCode: val(gp.OperatorCode),
 		Registration: val(gp.Registration), Roaming: val(gp.Registration) == "roaming",
 		PrimarySlot: atoi(g.PrimarySimSlot), OwnNumbers: g.OwnNumbers,
 	}
@@ -224,7 +228,7 @@ func fillSIM(s *Slot) {
 	}
 	p := r.SIM.Properties
 	s.Active = s.Active || p.Active == "yes"
-	s.EID, s.ICCID, s.IMSI, s.Operator = val(p.EID), val(p.ICCID), val(p.IMSI), val(p.OperatorName)
+	s.EID, s.ICCID, s.IMSI, s.Operator = val(p.EID), val(p.ICCID), val(p.IMSI), textutil.Line(val(p.OperatorName))
 	s.HomeCode = val(p.OperatorCode)
 	s.Type = val(p.SimType)
 	if s.Type == "" {
@@ -283,48 +287,32 @@ func (st *Status) sim() (string, error) {
 	return st.simPath, nil
 }
 
-// SendPIN unlocks the SIM.
-func (st *Status) SendPIN(pin string) error {
+// SIM lock operations go over D-Bus rather than mmcli, so PINs and PUKs
+// never appear on a command line (readable by any process through /proc).
+func (st *Status) simCall(method string, args ...any) error {
 	sim, err := st.sim()
 	if err != nil {
 		return err
 	}
-	_, err = run("mmcli", "-i", sim, "--pin="+pin)
-	return err
+	c, err := systemBus()
+	if err != nil {
+		return err
+	}
+	return cleanDBus(c.Object(mmService, dbus.ObjectPath(sim)).Call(mmService+".Sim."+method, 0, args...).Err)
 }
+
+// SendPIN unlocks the SIM.
+func (st *Status) SendPIN(pin string) error { return st.simCall("SendPin", pin) }
 
 // SendPUK unblocks the SIM and sets a new PIN.
-func (st *Status) SendPUK(puk, newPIN string) error {
-	sim, err := st.sim()
-	if err != nil {
-		return err
-	}
-	_, err = run("mmcli", "-i", sim, "--puk="+puk, "--pin="+newPIN)
-	return err
-}
+func (st *Status) SendPUK(puk, newPIN string) error { return st.simCall("SendPuk", puk, newPIN) }
 
 // SetPINLock enables or disables the PIN request at power-on.
-func (st *Status) SetPINLock(pin string, on bool) error {
-	sim, err := st.sim()
-	if err != nil {
-		return err
-	}
-	flag := "--disable-pin"
-	if on {
-		flag = "--enable-pin"
-	}
-	_, err = run("mmcli", "-i", sim, "--pin="+pin, flag)
-	return err
-}
+func (st *Status) SetPINLock(pin string, on bool) error { return st.simCall("EnablePin", pin, on) }
 
 // ChangePIN changes the SIM PIN.
 func (st *Status) ChangePIN(oldPIN, newPIN string) error {
-	sim, err := st.sim()
-	if err != nil {
-		return err
-	}
-	_, err = run("mmcli", "-i", sim, "--pin="+oldPIN, "--change-pin="+newPIN)
-	return err
+	return st.simCall("ChangePin", oldPIN, newPIN)
 }
 
 // Signal holds detailed radio measurements.

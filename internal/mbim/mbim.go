@@ -255,7 +255,7 @@ func (d *Device) readMsg() ([]byte, error) {
 	for {
 		if len(d.rbuf) >= 12 {
 			l := int(binary.LittleEndian.Uint32(d.rbuf[4:]))
-			if l < 12 {
+			if l < 12 || l > 1<<16 {
 				d.rbuf = nil
 				return nil, errors.New("mbim: corrupt message length")
 			}

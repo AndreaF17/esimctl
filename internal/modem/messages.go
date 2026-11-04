@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
+
+	"github.com/AndreaF17/esimctl/internal/textutil"
 )
 
 // SMS and calls go through ModemManager's D-Bus API directly: mmcli's
@@ -38,7 +40,10 @@ type Message struct {
 	Incoming bool      `json:"incoming"`
 	State    string    `json:"state"`
 	Read     bool      `json:"read"`
-	path     dbus.ObjectPath
+	// OnModem is false for messages only esimctl's archive still has:
+	// MBIM modems drop stored SMS when they restart.
+	OnModem bool `json:"on_modem"`
+	path    dbus.ObjectPath
 }
 
 // Call is a voice call known to the modem.
@@ -108,13 +113,13 @@ func readMessage(c *dbus.Conn, p dbus.ObjectPath) (Message, error) {
 	if err != nil {
 		return Message{}, err
 	}
-	text := str(m, "Text")
+	text := textutil.Clean(str(m, "Text"))
 	if strings.TrimSpace(text) == "" {
 		// Service messages (voicemail indicators, binary SMS) carry no text.
 		text = "(no text)"
 	}
 	msg := Message{
-		ID: idOf(p), path: p, Number: str(m, "Number"), Text: text,
+		ID: idOf(p), path: p, Number: textutil.Line(str(m, "Number")), Text: text,
 		State: smsStates[u32(m, "State")],
 		// PduType 1 is "deliver": a message received from the network.
 		Incoming: u32(m, "PduType") == 1,
@@ -141,17 +146,69 @@ func Messages() ([]Message, error) {
 		return nil, cleanDBus(err)
 	}
 	read := loadRead()
+	arch := loadArchive()
 	out := []Message{}
+	live := map[string]bool{}
+	changed := false
 	for _, p := range paths {
 		m, err := readMessage(c, p)
-		if err != nil {
+		if err != nil || m.State == "receiving" {
 			continue
 		}
+		m.OnModem = true
 		m.Read = !m.Incoming || read[m.key()]
+		live[m.key()] = true
+		if _, ok := arch[m.key()]; !ok {
+			arch[m.key()] = m
+			changed = true
+		}
+		out = append(out, m)
+	}
+	if changed {
+		saveArchive(arch)
+	}
+	for k, m := range arch {
+		if live[k] {
+			continue
+		}
+		m.ID = "a" + k[:8]
+		m.OnModem = false
+		m.Read = !m.Incoming || read[k]
 		out = append(out, m)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
 	return out, nil
+}
+
+// Archive stores a message in esimctl's local archive.
+func Archive(m Message) {
+	arch := loadArchive()
+	if _, ok := arch[m.key()]; !ok {
+		arch[m.key()] = m
+		saveArchive(arch)
+	}
+}
+
+func archivePath() string { return filepath.Join(filepath.Dir(readPath()), "sms-archive.json") }
+
+func loadArchive() map[string]Message {
+	m := map[string]Message{}
+	if b, err := os.ReadFile(archivePath()); err == nil {
+		_ = json.Unmarshal(b, &m)
+	}
+	return m
+}
+
+func saveArchive(m map[string]Message) {
+	p := archivePath()
+	if os.MkdirAll(filepath.Dir(p), 0o700) != nil {
+		return
+	}
+	b, _ := json.Marshal(m)
+	tmp := p + ".tmp"
+	if os.WriteFile(tmp, b, 0o600) == nil {
+		_ = os.Rename(tmp, p)
+	}
 }
 
 // Unread counts received messages not yet opened.
@@ -210,13 +267,18 @@ func DeleteMessage(id string) error {
 	if err != nil {
 		return err
 	}
-	obj, _, err := modemObject()
-	if err != nil {
-		return err
+	if m.OnModem {
+		obj, _, err := modemObject()
+		if err != nil {
+			return err
+		}
+		if err := obj.Call(ifMessaging+".Delete", 0, m.path).Err; err != nil {
+			return cleanDBus(err)
+		}
 	}
-	if err := obj.Call(ifMessaging+".Delete", 0, m.path).Err; err != nil {
-		return cleanDBus(err)
-	}
+	arch := loadArchive()
+	delete(arch, m.key())
+	saveArchive(arch)
 	read := loadRead()
 	delete(read, m.key())
 	saveRead(read)
@@ -269,7 +331,7 @@ func readCall(c *dbus.Conn, p dbus.ObjectPath) (Call, error) {
 	if err != nil {
 		return Call{}, err
 	}
-	return Call{ID: idOf(p), path: p, Number: str(m, "Number"),
+	return Call{ID: idOf(p), path: p, Number: textutil.Line(str(m, "Number")),
 		State: callStates[int32(u32(m, "State"))], Incoming: u32(m, "Direction") == 1}, nil
 }
 
@@ -382,6 +444,8 @@ func deliverMessage(c *dbus.Conn, p dbus.ObjectPath, f func(Message)) {
 	for i := 0; i < 20; i++ {
 		m, err := readMessage(c, p)
 		if err == nil && m.State != "receiving" {
+			m.OnModem = true
+			Archive(m)
 			f(m)
 			return
 		}

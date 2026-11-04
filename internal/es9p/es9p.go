@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -75,16 +76,24 @@ type header struct {
 	} `json:"functionExecutionStatus"`
 }
 
+// hostRE matches an SM-DP+ address as SGP.22 defines it: an FQDN, with an
+// optional port. Anything else (a scheme, a path, credentials) is refused so
+// that a crafted activation code can't downgrade ES9+ to plain HTTP or point
+// it at an arbitrary URL.
+var hostRE = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,62}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,62}[A-Za-z0-9])?)*(:[0-9]{1,5})?$`)
+
+// ValidAddress reports whether addr is a well-formed SM-DP+ address.
+func ValidAddress(addr string) bool { return len(addr) <= 255 && hostRE.MatchString(addr) }
+
 func (c *Client) post(ctx context.Context, function string, req any, resp any) error {
+	if !ValidAddress(c.Address) {
+		return fmt.Errorf("invalid SM-DP+ address %q", c.Address)
+	}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return err
 	}
-	addr := c.Address
-	if !strings.Contains(addr, "://") {
-		addr = "https://" + addr
-	}
-	url := strings.TrimRight(addr, "/") + "/gsma/rsp2/es9plus/" + function
+	url := "https://" + c.Address + "/gsma/rsp2/es9plus/" + function
 
 	raw, err := c.do(ctx, url, body)
 	var uerr *tls.CertificateVerificationError

@@ -149,7 +149,8 @@ func (p *Port) Query(cmd, prefix string) (string, error) {
 // mid-command; they would otherwise be taken as replies to our commands.
 func (p *Port) drain() {
 	buf := make([]byte, 4096)
-	for {
+	// Bounded: a modem that keeps talking must not hold us here forever.
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); {
 		_ = p.f.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
 		if n, err := p.f.Read(buf); err != nil || n == 0 {
 			break

@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/AndreaF17/esimctl/internal/gnss"
 	"github.com/AndreaF17/esimctl/internal/modem"
@@ -187,41 +191,79 @@ func cmdSIM(args []string) error {
 		syncAfterSIMChange()
 		return done(fmt.Sprintf("switched to slot %d", n))
 	case "pin":
-		if len(args) != 2 {
-			return errors.New("sim pin: expected the PIN")
+		pin, err := secretArg(args, 1, "SIM PIN")
+		if err != nil {
+			return err
 		}
-		if err := st.SendPIN(args[1]); err != nil {
+		if err := st.SendPIN(pin); err != nil {
 			return err
 		}
 		syncAfterSIMChange()
 		return done("SIM unlocked")
 	case "puk":
-		if len(args) != 3 {
-			return errors.New("sim puk: expected PUK and new PIN")
+		puk, err := secretArg(args, 1, "PUK")
+		if err != nil {
+			return err
 		}
-		if err := st.SendPUK(args[1], args[2]); err != nil {
+		newPIN, err := secretArg(args, 2, "New PIN")
+		if err != nil {
+			return err
+		}
+		if err := st.SendPUK(puk, newPIN); err != nil {
 			return err
 		}
 		syncAfterSIMChange()
 		return done("SIM unblocked, new PIN set")
 	case "pin-lock":
-		if len(args) != 3 || (args[1] != "on" && args[1] != "off") {
-			return errors.New("sim pin-lock: expected on|off and the PIN")
+		if len(args) < 2 || (args[1] != "on" && args[1] != "off") {
+			return errors.New("sim pin-lock: expected on|off")
 		}
-		if err := st.SetPINLock(args[2], args[1] == "on"); err != nil {
+		pin, err := secretArg(args, 2, "SIM PIN")
+		if err != nil {
+			return err
+		}
+		if err := st.SetPINLock(pin, args[1] == "on"); err != nil {
 			return err
 		}
 		return done("PIN request at power-on " + args[1])
 	case "change-pin":
-		if len(args) != 3 {
-			return errors.New("sim change-pin: expected old and new PIN")
+		oldPIN, err := secretArg(args, 1, "Current PIN")
+		if err != nil {
+			return err
 		}
-		if err := st.ChangePIN(args[1], args[2]); err != nil {
+		newPIN, err := secretArg(args, 2, "New PIN")
+		if err != nil {
+			return err
+		}
+		if err := st.ChangePIN(oldPIN, newPIN); err != nil {
 			return err
 		}
 		return done("PIN changed")
 	}
 	return fmt.Errorf("sim: unknown subcommand %q (slot, pin, puk, pin-lock, change-pin)", args[0])
+}
+
+// secretArg returns args[i], or asks for it on the terminal without echo:
+// a PIN given on the command line is visible to other processes.
+func secretArg(args []string, i int, label string) (string, error) {
+	if i < len(args) {
+		return args[i], nil
+	}
+	fd := int(os.Stdin.Fd())
+	old, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+	if err != nil {
+		return "", fmt.Errorf("%s required", label)
+	}
+	noEcho := *old
+	noEcho.Lflag &^= unix.ECHO
+	if err := unix.IoctlSetTermios(fd, unix.TCSETS, &noEcho); err != nil {
+		return "", err
+	}
+	defer unix.IoctlSetTermios(fd, unix.TCSETS, old)
+	fmt.Fprintf(os.Stderr, "%s: ", label)
+	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	fmt.Fprintln(os.Stderr)
+	return strings.TrimSpace(line), nil
 }
 
 // syncAfterSIMChange re-resolves the automatic APN once the active SIM can

@@ -94,3 +94,13 @@ func TestBPPSegmentation(t *testing.T) {
 		t.Fatalf("result %+v", res)
 	}
 }
+
+func TestEndlessGetResponseIsBounded(t *testing.T) {
+	f := &fakeCard{reply: func(a []byte) ([]byte, uint16) { return []byte{0xAA}, 0x61FF }}
+	if _, err := New(f, 1).StoreData(tlv.Encode(0xBF2D, nil)); err == nil {
+		t.Fatal("expected an error from a card that never stops")
+	}
+	if len(f.apdus) > 70 {
+		t.Fatalf("sent %d APDUs", len(f.apdus))
+	}
+}

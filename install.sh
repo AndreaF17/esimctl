@@ -18,10 +18,11 @@ cp omarchy/andrea.esim/* ~/.config/omarchy/plugins/andrea.esim/
 if ! cmp -s contrib/70-esimctl.rules /etc/udev/rules.d/70-esimctl.rules ||
   ! cmp -s contrib/esimctl-modemmanager.conf /etc/dbus-1/system.d/esimctl-modemmanager.conf; then
   echo "Installing udev rule and D-Bus policy (needs root)…"
-  pkexec sh -c "install -m644 '$PWD/contrib/70-esimctl.rules' /etc/udev/rules.d/ &&
-    install -Dm644 '$PWD/contrib/esimctl-modemmanager.conf' /etc/dbus-1/system.d/esimctl-modemmanager.conf &&
+  # Paths go in as arguments, never inside the root shell's script text.
+  pkexec sh -c 'install -m644 "$1" /etc/udev/rules.d/ &&
+    install -Dm644 "$2" /etc/dbus-1/system.d/esimctl-modemmanager.conf &&
     udevadm control --reload && udevadm trigger --subsystem-match=wwan --subsystem-match=gnss &&
-    systemctl reload dbus"
+    systemctl reload dbus' sh "$PWD/contrib/70-esimctl.rules" "$PWD/contrib/esimctl-modemmanager.conf"
 fi
 
 if command -v omarchy >/dev/null && ! grep -q '"andrea.esim"' ~/.config/omarchy/shell.json 2>/dev/null; then
