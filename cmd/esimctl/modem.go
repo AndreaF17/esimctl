@@ -16,6 +16,8 @@ type modemReport struct {
 	Settings   modem.Settings   `json:"settings"`
 	// SuggestedAPN is what automatic mode would use for the active SIM.
 	SuggestedAPN *modem.APN `json:"suggested_apn,omitempty"`
+	Messages     int        `json:"messages"`
+	Unread       int        `json:"unread"`
 }
 
 func getModemReport() (modemReport, error) {
@@ -27,6 +29,9 @@ func getModemReport() (modemReport, error) {
 	r.Modem = st
 	r.Connection, _ = modem.GetConnection()
 	r.Settings = modem.LoadSettings()
+	if msgs, err := modem.Messages(); err == nil {
+		r.Messages, r.Unread = len(msgs), modem.Unread(msgs)
+	}
 	if slot, ok := st.ActiveSlot(); ok {
 		if a, ok := modem.BestAPN(st.MCCMNC(), slot.Operator); ok {
 			r.SuggestedAPN = &a

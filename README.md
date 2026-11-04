@@ -27,7 +27,7 @@ on Iliad (Italy) with a physical SIM.
     ./install.sh
 
 `install.sh` builds `~/.local/bin/esimctl`, installs the `andrea.esim` bar
-widget, and (once, via pkexec):
+widget and the `esimctl-watch` user service, and (once, via pkexec):
 
 - `contrib/70-esimctl.rules`, which gives the logged-in user the modem's AT
   and NMEA ports and tells ModemManager to leave the AT port to esimctl;
@@ -56,11 +56,24 @@ Quectel unlock script for your modem's PCI id (`lspci -nn`), for example:
     esimctl data apn auto             # or: esimctl data apn <apn> [user] [pass]
     esimctl data roaming on
     esimctl gps on && esimctl gps
+    esimctl sms                       # list; also read, send, delete
+    esimctl sms send +391234567890 "On my way"
+    esimctl calls                     # list; hangup <id> rejects a call
     esimctl download 'LPA:1$smdp.example.com$MATCHING-ID'
     esimctl list | enable | disable | delete | nickname
     esimctl notifications process
 
 Every command accepts `--json`; `--debug` dumps modem traffic.
+
+## Messages and calls
+
+`esimctl watch`, installed as the `esimctl-watch` user service, turns incoming
+SMS into desktop notifications (with an Open action that shows the Messages
+tab of the TUI) and incoming calls into a notification with a Reject action,
+followed by a "Missed call" one. Laptop WWAN modules have no audio path to the
+computer, so calls can be seen and rejected but not answered. ModemManager
+doesn't track read state, so esimctl keeps it in
+`~/.local/state/esimctl/sms-read.json`.
 
 ## Notes
 

@@ -28,12 +28,19 @@ type tab int
 const (
 	tabMobile tab = iota
 	tabSIM
+	tabMessages
 	tabESIM
 	tabNotifications
 	tabCount
 )
 
-var tabNames = [tabCount]string{"Mobile", "SIM", "eSIM", "Notifications"}
+var tabNames = [tabCount]string{"Mobile", "SIM", "Messages", "eSIM", "Notifications"}
+
+// tabByName maps --tab values to tabs.
+var tabByName = map[string]tab{
+	"mobile": tabMobile, "sim": tabSIM, "messages": tabMessages, "sms": tabMessages,
+	"esim": tabESIM, "notifications": tabNotifications,
+}
 
 type mode int
 
@@ -58,6 +65,8 @@ const (
 	inputOldPIN
 	inputNewPIN
 	inputNewPINAgain
+	inputSMSNumber
+	inputSMSText
 )
 
 var inputLabels = map[inputPurpose]string{
@@ -65,7 +74,7 @@ var inputLabels = map[inputPurpose]string{
 	inputDelete: "Type delete to confirm", inputAPN: "APN (empty or auto: automatic)",
 	inputPIN: "SIM PIN", inputPUK: "PUK", inputPUKNewPIN: "New PIN",
 	inputLockPIN: "SIM PIN", inputOldPIN: "Current PIN", inputNewPIN: "New PIN",
-	inputNewPINAgain: "New PIN again",
+	inputNewPINAgain: "New PIN again", inputSMSNumber: "To (phone number)", inputSMSText: "Message",
 }
 
 // Mobile tab rows.
@@ -135,6 +144,10 @@ type (
 		code string
 		err  error
 	}
+	messagesLoadedMsg struct {
+		msgs []modem.Message
+		err  error
+	}
 	clearStatusMsg struct{ id int }
 	pollMsg        struct{}
 )
@@ -157,6 +170,11 @@ type model struct {
 	modemReady bool
 	// lockShown records that a locked SIM already moved us to the SIM tab.
 	lockShown bool
+
+	// Messages tab. reading is the message shown in full, if any.
+	messages []modem.Message
+	msgErr   error
+	reading  *modem.Message
 
 	// eSIM and Notifications tabs.
 	info     chipInfo
@@ -188,7 +206,7 @@ type model struct {
 
 var program *tea.Program
 
-func runTUI(ctx context.Context, scan, paste bool, code string) error {
+func runTUI(ctx context.Context, scan, paste bool, code, startTab string) error {
 	g.quiet = true // stderr would corrupt the alternate screen
 	st := newStyles()
 	sp := spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(st.accent))
@@ -198,6 +216,9 @@ func runTUI(ctx context.Context, scan, paste bool, code string) error {
 	ti.PromptStyle = st.accent
 	m := model{ctx: ctx, st: st, spin: sp, input: ti, busy: true, stage: "reading the modem",
 		scan: scan, paste: paste, code: code, pending: map[string]string{}}
+	if t, ok := tabByName[strings.ToLower(startTab)]; ok {
+		m.tab = t
+	}
 	if scan || paste || code != "" {
 		m.tab = tabESIM
 	}
@@ -210,7 +231,14 @@ func runTUI(ctx context.Context, scan, paste bool, code string) error {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(m.spin.Tick, loadModem(), loadESIM(), poll())
+	return tea.Batch(m.spin.Tick, loadModem(), loadESIM(), loadMessages(), poll())
+}
+
+func loadMessages() tea.Cmd {
+	return func() tea.Msg {
+		msgs, err := modem.Messages()
+		return messagesLoadedMsg{msgs, err}
+	}
 }
 
 func poll() tea.Cmd {
@@ -319,6 +347,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.busy && m.mode == modeNormal && (m.tab == tabMobile || m.tab == tabSIM) {
 			return m, tea.Batch(loadModem(), poll())
 		}
+		if !m.busy && m.mode == modeNormal && m.tab == tabMessages {
+			return m, tea.Batch(loadMessages(), poll())
+		}
 		return m, poll()
 
 	case modemLoadedMsg:
@@ -338,6 +369,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.busy = m.busy && m.stage == "reading the modem" && m.info.EID == "" && m.esimErr == nil
+		return m, nil
+
+	case messagesLoadedMsg:
+		m.msgErr = msg.err
+		if msg.err == nil {
+			m.messages = msg.msgs
+			m.cursor[tabMessages] = min(m.cursor[tabMessages], max(0, len(m.messages)-1))
+		}
 		return m, nil
 
 	case esimLoadedMsg:
@@ -364,7 +403,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case opDoneMsg:
 		m.busy = false
-		reload := []tea.Cmd{loadModem()}
+		reload := []tea.Cmd{loadModem(), loadMessages()}
 		if msg.esim {
 			reload = append(reload, loadESIM())
 		}
@@ -518,6 +557,16 @@ func (m model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.reading != nil {
+		switch k.String() {
+		case "q", "esc", "enter", "backspace":
+			m.reading = nil
+		case "r":
+			return m, m.replyTo(*m.reading)
+		}
+		return m, nil
+	}
+
 	switch k.String() {
 	case "q", "esc":
 		return m, tea.Quit
@@ -527,11 +576,16 @@ func (m model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab", "left", "h":
 		m.tab = (m.tab + tabCount - 1) % tabCount
 		return m, nil
-	case "1", "2", "3", "4":
+	case "1", "2", "3", "4", "5":
 		m.tab = tab(k.String()[0] - '1')
 		return m, nil
+	case "ctrl+r", "f5":
+		return m, m.start("refreshing", tea.Batch(loadModem(), loadESIM(), loadMessages()))
 	case "r":
-		return m, m.start("refreshing", tea.Batch(loadModem(), loadESIM()))
+		if m.tab == tabMessages {
+			break
+		}
+		return m, m.start("refreshing", tea.Batch(loadModem(), loadESIM(), loadMessages()))
 	case "a":
 		m.tab = tabESIM
 		return m, m.ask(inputCode, "LPA:1$smdp.example.com$MATCHING-ID", "")
@@ -558,6 +612,8 @@ func (m model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.mobileKey(k)
 	case tabSIM:
 		return m.simKey(k)
+	case tabMessages:
+		return m.messagesKey(k)
 	case tabESIM:
 		return m.esimKey(k)
 	}
@@ -571,6 +627,8 @@ func (m model) rows() int {
 		return mobileRows
 	case tabSIM:
 		return len(m.simRows())
+	case tabMessages:
+		return len(m.messages)
 	case tabESIM:
 		return len(m.profiles)
 	}
@@ -675,6 +733,21 @@ func (m model) submit(v string) (tea.Model, tea.Cmd) {
 		}
 		m.pending["new"] = v
 		return m, m.ask(inputNewPINAgain, "repeat the new PIN", "")
+	case inputSMSNumber:
+		if v == "" {
+			return m, nil
+		}
+		m.pending["to"] = v
+		return m, m.ask(inputSMSText, "text of the message", "")
+	case inputSMSText:
+		to := m.pending["to"]
+		clear(m.pending)
+		if v == "" {
+			return m, m.setStatus("message not sent", true)
+		}
+		return m, m.start("sending to "+to, func() tea.Msg {
+			return opDoneMsg{msg: "message sent to " + to, err: modem.SendMessage(to, v)}
+		})
 	case inputNewPINAgain:
 		old, nw := m.pending["old"], m.pending["new"]
 		clear(m.pending)
@@ -894,6 +967,43 @@ func (m model) notificationKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *model) replyTo(msg modem.Message) tea.Cmd {
+	m.reading = nil
+	m.pending["to"] = msg.Number
+	return m.ask(inputSMSText, "reply to "+msg.Number, "")
+}
+
+func (m model) messagesKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if k.String() == "c" || k.String() == "n" {
+		return m, m.ask(inputSMSNumber, "+39…", "")
+	}
+	c := m.cursor[tabMessages]
+	if c >= len(m.messages) {
+		return m, nil
+	}
+	msg := m.messages[c]
+	switch k.String() {
+	case "enter", " ":
+		m.reading = &msg
+		if !msg.Read {
+			modem.MarkRead(msg)
+			m.messages[c].Read = true
+		}
+	case "r":
+		return m, m.replyTo(msg)
+	case "d", "x", "delete":
+		m.confirm(fmt.Sprintf("Delete the message from %s?", msg.Number), func(m *model, yes bool) tea.Cmd {
+			if !yes {
+				return nil
+			}
+			return m.start("deleting", func() tea.Msg {
+				return opDoneMsg{msg: "message deleted", err: modem.DeleteMessage(msg.ID)}
+			})
+		})
+	}
+	return m, nil
+}
+
 func switchCmd(ctx context.Context, verb, iccid string) tea.Cmd {
 	return func() tea.Msg {
 		s, err := openSession()
@@ -956,6 +1066,9 @@ func (m model) View() string {
 		if i == tabNotifications && len(m.notifs) > 0 {
 			name += fmt.Sprintf(" (%d)", len(m.notifs))
 		}
+		if n := modem.Unread(m.messages); i == tabMessages && n > 0 {
+			name += fmt.Sprintf(" (%d)", n)
+		}
 		label := fmt.Sprintf("%d %s", i+1, name)
 		if i == m.tab {
 			b.WriteString(st.accent.Underline(true).Render(label))
@@ -971,6 +1084,8 @@ func (m model) View() string {
 		b.WriteString(m.viewMobile())
 	case tabSIM:
 		b.WriteString(m.viewSIM())
+	case tabMessages:
+		b.WriteString(m.viewMessages(w))
 	case tabESIM:
 		b.WriteString(m.viewProfiles())
 	case tabNotifications:
@@ -1014,6 +1129,11 @@ func (m model) hints() []string {
 		return append(h, common...)
 	case tabSIM:
 		return append([]string{"enter", "select"}, common...)
+	case tabMessages:
+		if m.reading != nil {
+			return []string{"r", "reply", "esc", "back"}
+		}
+		return []string{"enter", "read", "r", "reply", "c", "new", "d", "delete", "tab", "next tab", "q", "quit"}
 	case tabESIM:
 		return append([]string{"enter", "enable/disable", "n", "rename", "d", "delete", "a", "add code",
 			"s", "scan QR", "v", "paste"}, common...)
@@ -1206,6 +1326,65 @@ func (m model) viewSIM() string {
 		b.WriteString(" " + st.muted.Render("The modem reports no SIM slots.") + "\n")
 	}
 	return b.String()
+}
+
+func (m model) viewMessages(w int) string {
+	st := m.st
+	if m.msgErr != nil {
+		return " " + st.err.Render("✗ ") + st.text.Render(m.msgErr.Error()) + "\n"
+	}
+	if r := m.reading; r != nil {
+		var b strings.Builder
+		dir := "From"
+		if !r.Incoming {
+			dir = "To"
+		}
+		b.WriteString(fmt.Sprintf("   %s %s  %s\n\n", st.muted.Render(dir), st.title.Render(r.Number), st.muted.Render(when(r.Time))))
+		for _, line := range wrapText(r.Text, max(20, w-6)) {
+			b.WriteString("   " + st.text.Render(line) + "\n")
+		}
+		return b.String()
+	}
+	if len(m.messages) == 0 {
+		return " " + st.muted.Render("No messages. Press c to write one.") + "\n"
+	}
+	var b strings.Builder
+	for i, msg := range m.messages {
+		dot := " "
+		if !msg.Read {
+			dot = st.accent.Render("●")
+		}
+		who := msg.Number
+		if !msg.Incoming {
+			who = "→ " + who
+		}
+		name := st.text.Bold(!msg.Read).Render(fmt.Sprintf("%-18s", who))
+		preview := firstLine(msg.Text, max(10, w-36))
+		b.WriteString(fmt.Sprintf("%s%s %s %s  %s\n", m.cursorBar(tabMessages, i), dot, name,
+			st.muted.Render(fmt.Sprintf("%-12s", when(msg.Time))), st.text.Render(preview)))
+	}
+	return b.String()
+}
+
+// wrapText breaks s into lines of at most w runes, at spaces when possible.
+func wrapText(s string, w int) []string {
+	var out []string
+	for _, para := range strings.Split(s, "\n") {
+		line := ""
+		for _, word := range strings.Fields(para) {
+			switch {
+			case line == "":
+				line = word
+			case len([]rune(line))+1+len([]rune(word)) <= w:
+				line += " " + word
+			default:
+				out = append(out, line)
+				line = word
+			}
+		}
+		out = append(out, line)
+	}
+	return out
 }
 
 func (m model) viewProfiles() string {

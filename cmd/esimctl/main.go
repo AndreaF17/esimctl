@@ -61,8 +61,13 @@ Commands:
                               APN selection (auto: from the provider database)
   data apns [mccmnc]          known APNs for the active SIM's network
   data roaming|autoconnect on|off
+  sms [list|read <id>|send <number> <text>|delete <id>|mark-read]
+                              text messages
+  calls [list|hangup <id>]    voice calls (the modem has no audio path)
+  watch                       notify new messages and incoming calls
+                              (run as a user service)
   gps [status|on|off]         GNSS receiver: position, satellites, power
-  tui [--scan|--paste|--code <c>]
+  tui [--tab <name>] [--scan|--paste|--code <c>]
                               interactive terminal interface, optionally
                               starting a download right away
 
@@ -108,6 +113,7 @@ func main() {
 	scan := fs.Bool("scan", false, "")
 	paste := fs.Bool("paste", false, "")
 	code := fs.String("code", "", "")
+	startTab := fs.String("tab", "", "")
 	if err := fs.Parse(interleave(rest)); err != nil {
 		os.Exit(2)
 	}
@@ -179,8 +185,14 @@ func main() {
 		err = cmdSIM(rest)
 	case "data":
 		err = cmdData(rest)
+	case "sms", "messages":
+		err = cmdSMS(rest)
+	case "calls":
+		err = cmdCalls(rest)
+	case "watch":
+		err = cmdWatch(ctx)
 	case "tui":
-		err = runTUI(ctx, *scan, *paste, *code)
+		err = runTUI(ctx, *scan, *paste, *code, *startTab)
 	case "scan":
 		var c string
 		if *paste {
@@ -210,7 +222,7 @@ func main() {
 // "esimctl enable 8939... --json" works like "esimctl enable --json 8939...".
 func interleave(args []string) []string {
 	var flags, pos []string
-	valued := map[string]bool{"-cc": true, "--cc": true, "-device": true, "--device": true, "-code": true, "--code": true, "-transport": true, "--transport": true}
+	valued := map[string]bool{"-cc": true, "--cc": true, "-device": true, "--device": true, "-code": true, "--code": true, "-transport": true, "--transport": true, "-tab": true, "--tab": true}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if a == "--" {

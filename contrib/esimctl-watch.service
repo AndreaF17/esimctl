@@ -1,0 +1,12 @@
+[Unit]
+Description=Notify incoming SMS and calls from the cellular modem
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/esimctl watch
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=graphical-session.target

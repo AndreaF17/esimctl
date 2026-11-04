@@ -7,6 +7,11 @@ cd "$(dirname "$0")"
 go build -trimpath -ldflags "-s -w" -o esimctl ./cmd/esimctl
 install -Dm755 esimctl ~/.local/bin/esimctl
 
+install -Dm644 contrib/esimctl-watch.service ~/.config/systemd/user/esimctl-watch.service
+systemctl --user daemon-reload
+systemctl --user enable --now esimctl-watch.service
+systemctl --user restart esimctl-watch.service
+
 mkdir -p ~/.config/omarchy/plugins/andrea.esim
 cp omarchy/andrea.esim/* ~/.config/omarchy/plugins/andrea.esim/
 
