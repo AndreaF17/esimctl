@@ -2,10 +2,12 @@ import QtQuick
 import qs.Ui
 import qs.Commons
 
-// A row of the overview sections: title, caption and an optional switch.
-// Clicking anywhere on the row does what the switch does.
+// A row of the overview sections: optional icon, title, caption and an
+// optional switch. Clicking anywhere on the row does what the switch does.
+// Active rows aren't filled: the switch already shows the state.
 CursorSurface {
   id: r
+  property string icon
   property string title
   property string caption
   property color captionColor: Qt.darker(fg, 1.4)
@@ -21,7 +23,7 @@ CursorSurface {
   signal hoveredRow()
   implicitHeight: labels.implicitHeight + Style.space(14)
   foreground: fg
-  current: checked && showToggle
+  current: false
   hasCursor: cursor
   MouseArea {
     anchors.fill: parent
@@ -30,12 +32,24 @@ CursorSurface {
     onEntered: r.hoveredRow()
     onClicked: r.showToggle ? (r.toggleEnabled ? r.toggled() : null) : r.clicked()
   }
-  Column {
-    id: labels
+  Text {
+    id: iconText
+    visible: r.icon !== ""
+    text: r.icon
+    color: r.fg
+    font.family: r.fontFamily
+    font.pixelSize: Style.font.title
     anchors.left: parent.left
     anchors.leftMargin: Style.space(10)
     anchors.verticalCenter: parent.verticalCenter
+  }
+  Column {
+    id: labels
+    anchors.left: iconText.visible ? iconText.right : parent.left
+    anchors.leftMargin: Style.space(10)
+    anchors.verticalCenter: parent.verticalCenter
     width: parent.width - (r.showToggle ? sw.width + Style.space(8) : 0) - Style.space(20)
+      - (iconText.visible ? iconText.width + Style.space(10) : 0)
     spacing: Style.space(2)
     Text {
       width: parent.width

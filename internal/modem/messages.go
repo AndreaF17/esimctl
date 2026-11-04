@@ -108,8 +108,13 @@ func readMessage(c *dbus.Conn, p dbus.ObjectPath) (Message, error) {
 	if err != nil {
 		return Message{}, err
 	}
+	text := str(m, "Text")
+	if strings.TrimSpace(text) == "" {
+		// Service messages (voicemail indicators, binary SMS) carry no text.
+		text = "(no text)"
+	}
 	msg := Message{
-		ID: idOf(p), path: p, Number: str(m, "Number"), Text: str(m, "Text"),
+		ID: idOf(p), path: p, Number: str(m, "Number"), Text: text,
 		State: smsStates[u32(m, "State")],
 		// PduType 1 is "deliver": a message received from the network.
 		Incoming: u32(m, "PduType") == 1,
