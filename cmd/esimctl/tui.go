@@ -779,9 +779,11 @@ func (m model) mobileKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	md := m.modem()
 	switch k.String() {
 	case "o":
-		if m.gps.Valid {
-			url := fmt.Sprintf("https://www.openstreetmap.org/?mlat=%.6f&mlon=%.6f#map=17/%.6f/%.6f", m.gps.Lat, m.gps.Lon, m.gps.Lat, m.gps.Lon)
-			_ = exec.Command("xdg-open", url).Start()
+		switch lf := m.mobile.LastFix; {
+		case m.gps.Valid:
+			_ = exec.Command("xdg-open", mapURL(m.gps.Lat, m.gps.Lon)).Start()
+		case lf != nil:
+			_ = exec.Command("xdg-open", mapURL(lf.Lat, lf.Lon)).Start()
 		}
 		return m, nil
 	case "enter", " ":
@@ -833,6 +835,9 @@ func (m model) mobileKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		on := !m.gps.Enabled
 		return m, m.start("turning GPS "+onOff(on), func() tea.Msg {
 			err := withAT(func(p *at.Port) error { return gnss.SetEnabled(p, on) })
+			if err == nil && on {
+				_ = assistIfStale(m.ctx)
+			}
 			return opDoneMsg{msg: "GPS " + onOff(on), err: err}
 		})
 	}
@@ -1125,7 +1130,7 @@ func (m model) hints() []string {
 	switch m.tab {
 	case tabMobile:
 		h := []string{"enter", "toggle / edit"}
-		if m.gps.Valid {
+		if m.gps.Valid || m.mobile.LastFix != nil {
 			h = append(h, "o", "open map")
 		}
 		return append(h, common...)
@@ -1222,6 +1227,8 @@ func (m model) viewMobile() string {
 	}
 	if m.gps.Valid {
 		kv("Location", fmt.Sprintf("%.6f, %.6f  ±%.1f HDOP, %.0f m", m.gps.Lat, m.gps.Lon, m.gps.HDOP, m.gps.Alt))
+	} else if lf := m.mobile.LastFix; lf != nil {
+		kv("Last location", fmt.Sprintf("%.6f, %.6f  %s ago", lf.Lat, lf.Lon, ago(lf.At)))
 	}
 	b.WriteString("\n")
 
@@ -1255,7 +1262,7 @@ func (m model) viewMobile() string {
 		gpsDetail = fmt.Sprintf("%.5f, %.5f  %s, %d/%d sats, ±%.1f HDOP", m.gps.Lat, m.gps.Lon,
 			strings.ToUpper(m.gps.Mode), m.gps.SatsUsed, m.gps.SatsInView, m.gps.HDOP)
 	case m.gps.Enabled:
-		gpsDetail = fmt.Sprintf("searching, %d satellites in view", m.gps.SatsInView)
+		gpsDetail = fmt.Sprintf("searching · %d in view, %d with signal", m.gps.SatsInView, m.gps.SatsHeard)
 	}
 	b.WriteString(m.row(tabMobile, rowGPS, "GPS", m.toggle(m.gps.Enabled), gpsDetail))
 	return b.String()

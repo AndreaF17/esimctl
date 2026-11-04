@@ -67,7 +67,8 @@ Commands:
   calls [list|hangup <id>]    voice calls (the modem has no audio path)
   watch                       notify new messages and incoming calls
                               (run as a user service)
-  gps [status|on|off]         GNSS receiver: position, satellites, power
+  gps [status|on|off|assist]  GNSS receiver: position, satellites, last fix;
+                              assist loads XTRA data for a faster first fix
   tui [--tab <name>] [--scan|--paste|--code <c>]
                               interactive terminal interface, optionally
                               starting a download right away

@@ -31,9 +31,12 @@ type Fix struct {
 	HDOP       float64    `json:"hdop"`         //
 	SatsUsed   int        `json:"sats_used"`    //
 	SatsInView int        `json:"sats_in_view"` //
+	SatsHeard  int        `json:"sats_heard"`   // in view with a measurable signal
+	BestSNR    int        `json:"best_snr"`     // dB-Hz, strongest satellite
 	Time       *time.Time `json:"time,omitempty"`
 
 	inView map[string]int // per constellation (GP, GL, GA, BD, ...)
+	snr    map[string]int // per talker+PRN
 }
 
 // Enabled reports whether the receiver is running.
@@ -191,7 +194,28 @@ func Parse(fix *Fix, line string) string {
 		if fix.inView == nil {
 			fix.inView = map[string]int{}
 		}
+		if fix.snr == nil {
+			fix.snr = map[string]int{}
+		}
 		fix.inView[talker], _ = strconv.Atoi(f[3])
+		// Satellite blocks: PRN, elevation, azimuth, SNR (empty if not heard).
+		for i := 4; i+3 < len(f); i += 4 {
+			if f[i] == "" {
+				continue
+			}
+			snr, err := strconv.Atoi(f[i+3])
+			if err != nil {
+				snr = 0
+			}
+			fix.snr[talker+f[i]] = snr
+		}
+		fix.SatsHeard, fix.BestSNR = 0, 0
+		for _, v := range fix.snr {
+			if v > 0 {
+				fix.SatsHeard++
+			}
+			fix.BestSNR = max(fix.BestSNR, v)
+		}
 	default:
 		return ""
 	}

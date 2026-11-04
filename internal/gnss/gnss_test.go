@@ -83,3 +83,27 @@ func TestParseLoc(t *testing.T) {
 		t.Fatal("accepted garbage")
 	}
 }
+
+func TestGSVSignalStrength(t *testing.T) {
+	var fix Fix
+	Parse(&fix, sentence("GPGSV,1,1,03,15,08,042,29,16,56,209,,20,,,"))
+	if fix.SatsHeard != 1 || fix.BestSNR != 29 || fix.inView["GP"] != 3 {
+		t.Fatalf("heard %d best %d in view %v", fix.SatsHeard, fix.BestSNR, fix.inView)
+	}
+}
+
+func TestLastFix(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	if _, err := Last(); err == nil {
+		t.Fatal("expected no last fix")
+	}
+	if RememberFix(Fix{Valid: false}) == nil {
+		t.Fatal("stored an invalid fix")
+	}
+	if err := RememberFix(Fix{Valid: true, Lat: 45.1, Lon: 9.2}); err != nil {
+		t.Fatal(err)
+	}
+	if lf, err := Last(); err != nil || lf.Lat != 45.1 || lf.Lon != 9.2 {
+		t.Fatalf("%+v %v", lf, err)
+	}
+}

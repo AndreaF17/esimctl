@@ -131,6 +131,63 @@ func (p *Port) Command(cmd string) ([]string, error) {
 	}
 }
 
+// Upload stores data as a file in the modem's filesystem (AT+QFUPL), e.g.
+// name "UFS:xtra.bin". The modem answers CONNECT, takes the raw bytes and
+// reports the size it received.
+func (p *Port) Upload(name string, data []byte) error {
+	cmd := fmt.Sprintf(`AT+QFUPL="%s",%d,60`, name, len(data))
+	if p.Debug != nil {
+		p.Debug(">>", cmd)
+	}
+	if _, err := p.f.Write([]byte(cmd + "\r")); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(p.Timeout)
+	for {
+		line, err := p.readLine(deadline)
+		if err != nil {
+			return err
+		}
+		if line == "" || line == cmd {
+			continue
+		}
+		if strings.HasPrefix(line, "CONNECT") {
+			break
+		}
+		if line == "ERROR" || strings.HasPrefix(line, "+CME ERROR") {
+			return &Error{Msg: line}
+		}
+	}
+	for off := 0; off < len(data); {
+		n, err := p.f.Write(data[off:min(off+4096, len(data))])
+		if err != nil {
+			return err
+		}
+		off += n
+	}
+	deadline = time.Now().Add(p.Timeout + 30*time.Second)
+	got := -1
+	for {
+		line, err := p.readLine(deadline)
+		if err != nil {
+			return err
+		}
+		switch {
+		case strings.HasPrefix(line, "+QFUPL:"):
+			v := strings.TrimSpace(strings.TrimPrefix(line, "+QFUPL:"))
+			size, _, _ := strings.Cut(v, ",")
+			got, _ = strconv.Atoi(strings.TrimSpace(size))
+		case line == "OK":
+			if got != len(data) {
+				return fmt.Errorf("modem: upload stored %d of %d bytes", got, len(data))
+			}
+			return nil
+		case line == "ERROR" || strings.HasPrefix(line, "+CME ERROR"):
+			return &Error{Msg: line}
+		}
+	}
+}
+
 // Query runs cmd and returns the payload of the first line starting with prefix.
 func (p *Port) Query(cmd, prefix string) (string, error) {
 	lines, err := p.Command(cmd)
