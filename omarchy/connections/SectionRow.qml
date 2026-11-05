@@ -15,6 +15,9 @@ CursorSurface {
   property bool toggleBusy
   property bool toggleEnabled: true
   property bool showToggle: true
+  // Without a switch, an optional glyph at the right edge (e.g. a chevron
+  // saying the row opens something).
+  property string trailingIcon: ""
   property bool cursor: false
   property color fg
   property string fontFamily
@@ -48,7 +51,7 @@ CursorSurface {
     anchors.left: iconText.visible ? iconText.right : parent.left
     anchors.leftMargin: Style.space(10)
     anchors.verticalCenter: parent.verticalCenter
-    width: parent.width - (r.showToggle ? sw.width + Style.space(8) : 0) - Style.space(20)
+    width: parent.width - (r.showToggle ? sw.width + Style.space(8) : trailing.visible ? trailing.width + Style.space(8) : 0) - Style.space(20)
       - (iconText.visible ? iconText.width + Style.space(10) : 0)
     spacing: Style.space(2)
     Text {
@@ -70,6 +73,17 @@ CursorSurface {
       font.family: r.fontFamily
       font.pixelSize: Style.font.caption
     }
+  }
+  Text {
+    id: trailing
+    visible: !r.showToggle && r.trailingIcon !== ""
+    text: r.trailingIcon
+    color: r.cursor ? r.fg : Qt.darker(r.fg, 1.4)
+    font.family: r.fontFamily
+    font.pixelSize: Style.font.body
+    anchors.right: parent.right
+    anchors.rightMargin: Style.space(12)
+    anchors.verticalCenter: parent.verticalCenter
   }
   ToggleSwitch {
     id: sw

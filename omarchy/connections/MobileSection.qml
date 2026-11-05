@@ -43,12 +43,19 @@ Column {
   }
 
   readonly property string problem: mobile.problem || ""
+  // Nothing to switch: no SIM, a locked SIM, the radio off or a failed modem.
+  // The row then says what to do and opens Mobile settings on click.
+  readonly property bool usable: !!modem && problem === "" && !locked && radioOn
+  readonly property bool esimHint: problem.indexOf("eSIM") >= 0
+  readonly property bool noProfile: problem.indexOf("no enabled profile") >= 0
   readonly property string title: {
     if (!modem) return "Mobile data"
-    if (problem.indexOf("no SIM") === 0) return "No SIM"
+    if (problem.indexOf("no SIM") === 0) return "No SIM card"
+    if (noProfile) return "eSIM without a profile"
+    if (problem.indexOf("can't be read") >= 0) return "SIM unreadable"
     if (problem !== "") return "Modem unavailable"
     if (locked) return "SIM locked"
-    if (!radioOn) return "Radio off"
+    if (!radioOn) return "Cellular radio off"
     if (!registered) return "No network"
     return modem.operator + " · " + (modem.access_tech || []).join("/").toUpperCase() + " · " + signal + "%"
   }
@@ -62,9 +69,12 @@ Column {
 
   readonly property string status: {
     if (mobile.error) return mobile.error
-    if (problem !== "") return problem.charAt(0).toUpperCase() + problem.slice(1).replace(/: esimctl sim slot \d+/, " in Mobile settings")
-    if (locked) return "Enter the PIN in Mobile settings"
-    if (!radioOn) return "Turn the radio on in Mobile settings"
+    if (problem.indexOf("no SIM") === 0) return esimHint ? "Insert a SIM, or switch to the eSIM" : "Insert a SIM card"
+    if (noProfile) return "Enable or download one in Mobile settings"
+    if (problem.indexOf("can't be read") >= 0) return "Reinsert the SIM card"
+    if (problem !== "") return problem.charAt(0).toUpperCase() + problem.slice(1).replace(/[:;] .*esimctl.*$/, "")
+    if (locked) return "Enter the PIN to use mobile data"
+    if (!radioOn) return "Turn it on to use mobile data"
     var s
     if (connected) {
       s = "Connected" + (conn.ipv4 ? " · " + conn.ipv4 : "")
@@ -80,7 +90,8 @@ Column {
   }
 
   // ---- keyboard cursor: row 0 is data, row 1 messages.
-  readonly property int rowCount: available ? 2 : 0
+  readonly property bool showMessages: usable || (mobile.messages || 0) > 0
+  readonly property int rowCount: available ? (showMessages ? 2 : 1) : 0
   property int cursor: 0
   readonly property bool focused: owner.cursorActive && owner.focusSection === "mobile"
   function enter(fromTop) { cursor = fromTop ? 0 : rowCount - 1 }
@@ -97,8 +108,9 @@ Column {
     cursor = row
   }
   function activate() {
-    if (cursor === 0) toggleData()
-    else openMessages()
+    if (cursor !== 0) openMessages()
+    else if (usable) toggleData()
+    else openSettings()
   }
 
   function refresh() {
@@ -109,6 +121,12 @@ Column {
     message = ""
     actionProc.command = [root.esimctl, "--json", "data", connected ? "off" : "on"]
     actionProc.running = true
+  }
+  // Mobile settings on the tab that fixes the problem.
+  function openSettings() {
+    owner.close()
+    Quickshell.execDetached(["omarchy-launch-or-focus-tui", "--app-id=org.omarchy.esimctl", root.esimctl,
+      "tui", "--tab", noProfile ? "esim" : !radioOn && !locked && problem === "" ? "mobile" : "sim"])
   }
   function openMessages() {
     owner.close()
@@ -172,17 +190,21 @@ Column {
     caption: root.status
     captionColor: root.locked || root.limitReached ? root.bar.urgent : Qt.darker(root.fg, 1.4)
     checked: root.connected
+    showToggle: root.usable
+    trailingIcon: "\u{F0142}"  // chevron right: opens Mobile settings
     toggleBusy: root.busy
-    toggleEnabled: !root.busy && !root.locked && root.radioOn
+    toggleEnabled: !root.busy
     cursor: root.focused && root.cursor === 0
     onHoveredRow: root.hover(0)
     onToggled: root.toggleData()
+    onClicked: root.openSettings()
   }
 
   SectionRow {
     width: parent.width
     fg: root.fg
     fontFamily: root.bar.fontFamily
+    visible: root.showMessages
     icon: "\u{F0369}"
     title: root.unread > 0 ? "Messages · " + root.unread + " unread" : "Messages"
     caption: (root.mobile.messages || 0) === 0 ? "No messages"
