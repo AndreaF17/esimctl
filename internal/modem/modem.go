@@ -254,14 +254,38 @@ func fillSIM(s *Slot) {
 	}
 }
 
+// VisibleSlots returns the slots to show: all of them with showEmpty, else
+// only those holding a SIM (an eSIM is always present). With nothing
+// inserted anywhere every slot shows, so there is something to explain.
+func (st *Status) VisibleSlots(showEmpty bool) []Slot {
+	var present []Slot
+	for _, s := range st.Slots {
+		if s.Present {
+			present = append(present, s)
+		}
+	}
+	if showEmpty || len(present) == 0 {
+		return st.Slots
+	}
+	return present
+}
+
 // Problem explains, for people, why the modem can't be used right now, or
-// returns "" when nothing is wrong.
-func (st *Status) Problem() string {
+// returns "" when nothing is wrong. With hideEmpty the empty card slot isn't
+// shown, so the message points at the eSIM instead of a slot number.
+func (st *Status) Problem(hideEmpty bool) string {
 	if st.State != "failed" {
 		return ""
 	}
 	switch st.FailedReason {
 	case "sim-missing":
+		if hideEmpty {
+			for _, s := range st.Slots {
+				if s.Present && s.Type == "esim" && s.Index != st.PrimarySlot {
+					return fmt.Sprintf("no SIM card inserted; switch to the eSIM: esimctl sim slot %d", s.Index)
+				}
+			}
+		}
 		msg := fmt.Sprintf("no SIM in slot %d", st.PrimarySlot)
 		for _, s := range st.Slots {
 			if s.Present && s.Index != st.PrimarySlot {

@@ -36,12 +36,12 @@ func getModemReport() (modemReport, error) {
 		return r, err
 	}
 	r.Modem = st
-	r.Problem = st.Problem()
+	r.Settings = modem.LoadSettings()
+	r.Problem = st.Problem(!r.Settings.ShowEmptySlots)
 	if u, err := modem.SampleUsage(time.Now()); err == nil {
 		r.Usage = &u
 	}
 	r.Connection, _ = modem.GetConnection()
-	r.Settings = modem.LoadSettings()
 	if msgs, err := modem.Messages(); err == nil {
 		r.Messages, r.Unread = len(msgs), modem.Unread(msgs)
 	}
@@ -124,7 +124,7 @@ func printModem(r modemReport) {
 		}
 		fmt.Printf("Network:    %s %s, %s, signal %d%%%s\n", orDash(st.Operator), strings.Join(st.AccessTech, "/"), orDash(st.Registration), st.Signal, roam)
 	}
-	for _, s := range st.Slots {
+	for _, s := range st.VisibleSlots(r.Settings.ShowEmptySlots) {
 		mark := "  "
 		if s.Active {
 			mark = "● "
@@ -188,6 +188,20 @@ func onOff(b bool) string {
 func cmdSIM(args []string) error {
 	if len(args) == 0 {
 		return cmdModem(nil)
+	}
+	if args[0] == "show-empty" {
+		if len(args) != 2 || (args[1] != "on" && args[1] != "off") {
+			return errors.New("sim show-empty: expected on or off")
+		}
+		set := modem.LoadSettings()
+		set.ShowEmptySlots = args[1] == "on"
+		if err := modem.SaveSettings(set); err != nil {
+			return err
+		}
+		if set.ShowEmptySlots {
+			return done("empty SIM slots are shown")
+		}
+		return done("empty SIM slots are hidden")
 	}
 	st, err := modem.Get()
 	if err != nil {
@@ -257,7 +271,7 @@ func cmdSIM(args []string) error {
 		}
 		return done("PIN changed")
 	}
-	return fmt.Errorf("sim: unknown subcommand %q (slot, pin, puk, pin-lock, change-pin)", args[0])
+	return fmt.Errorf("sim: unknown subcommand %q (slot, show-empty, pin, puk, pin-lock, change-pin)", args[0])
 }
 
 // secretArg returns args[i], or asks for it on the terminal without echo:

@@ -96,6 +96,9 @@ type Settings struct {
 	Autoconnect bool   `json:"autoconnect"`
 	Roaming     bool   `json:"roaming"`
 	Limit       Limit  `json:"limit"`
+	// ShowEmptySlots lists SIM slots with nothing in them; by default an
+	// empty card slot is hidden and only the eSIM shows.
+	ShowEmptySlots bool `json:"show_empty_slots"`
 }
 
 func settingsPath() string {

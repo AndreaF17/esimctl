@@ -55,6 +55,7 @@ Commands:
   modem [status|on|off|signal]
                               modem state, radio power, signal details
   sim slot <n>                switch SIM slot (physical / eSIM)
+  sim show-empty on|off       list an empty card slot (off: only the eSIM shows)
   sim pin                     unlock the SIM, asking for the PIN without echo
                               (also: puk, pin-lock on|off, change-pin)
   data [status|on|off]        mobile data connection (NetworkManager)

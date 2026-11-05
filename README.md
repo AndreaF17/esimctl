@@ -51,6 +51,7 @@ Quectel unlock script for your modem's PCI id (`lspci -nn`), for example:
     esimctl modem                     # state, network, slots, data, APN
     esimctl modem on|off|signal
     esimctl sim slot 1                # physical SIM; slot 2 is the eSIM here
+    esimctl sim show-empty on         # list the card slot even when empty (default: hidden)
     esimctl sim pin 1234
     esimctl data on|off
     esimctl data apn auto             # or: esimctl data apn <apn> [user] [pass]

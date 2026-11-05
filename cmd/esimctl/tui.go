@@ -894,7 +894,7 @@ func (m model) simRows() []simRow {
 		return nil
 	}
 	var rows []simRow
-	for _, s := range md.Slots {
+	for _, s := range md.VisibleSlots(m.mobile.Settings.ShowEmptySlots) {
 		rows = append(rows, simRow{slot: s.Index})
 	}
 	switch {
@@ -907,7 +907,7 @@ func (m model) simRows() []simRow {
 	if s, ok := md.ActiveSlot(); ok && s.ICCID != "" && md.UnlockRequired == "" {
 		rows = append(rows, simRow{action: "lock"}, simRow{action: "change"})
 	}
-	return rows
+	return append(rows, simRow{action: "showempty"})
 }
 
 func (m model) simKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -948,6 +948,14 @@ func (m model) simKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.ask(inputLockPIN, "current PIN", "")
 	case r.action == "change":
 		return m, m.ask(inputOldPIN, "current PIN", "")
+	case r.action == "showempty":
+		set := modem.LoadSettings()
+		set.ShowEmptySlots = !set.ShowEmptySlots
+		msg := "empty SIM slots shown"
+		if !set.ShowEmptySlots {
+			msg = "empty SIM slots hidden"
+		}
+		return m, m.start("saving", func() tea.Msg { return opDoneMsg{msg: msg, err: modem.SaveSettings(set)} })
 	}
 	return m, nil
 }
@@ -1375,7 +1383,7 @@ func (m model) viewSIM() string {
 			}
 			continue
 		}
-		if i > 0 && m.simRows()[i-1].slot > 0 {
+		if prev := m.simRows(); i > 0 && (prev[i-1].slot > 0 || r.action == "showempty") {
 			b.WriteString("\n")
 		}
 		switch r.action {
@@ -1391,7 +1399,15 @@ func (m model) viewSIM() string {
 			b.WriteString(m.row(tabSIM, i, "PIN at power-on", m.toggle(md.PINLock), "asks for the PIN when the modem starts"))
 		case "change":
 			b.WriteString(m.row(tabSIM, i, "Change PIN", "", ""))
+		case "showempty":
+			b.WriteString(m.row(tabSIM, i, "Show empty SIM slot", m.toggle(m.mobile.Settings.ShowEmptySlots), "off: with no card inserted only the eSIM is listed"))
 		}
+	}
+	if p := m.mobile.Problem; p != "" {
+		if i := strings.Index(p, ": esimctl sim slot"); i >= 0 {
+			p = p[:i] + " above"
+		}
+		b.WriteString("\n " + st.warn.Render(p) + "\n")
 	}
 	if len(md.Slots) == 0 {
 		b.WriteString(" " + st.muted.Render("The modem reports no SIM slots.") + "\n")

@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/textinput"
 
 	"github.com/AndreaF17/esimctl/internal/euicc"
+	"github.com/AndreaF17/esimctl/internal/modem"
 )
 
 func newTestModel() model {
@@ -77,5 +79,25 @@ func TestDeleteNeedsTypedConfirmation(t *testing.T) {
 	}
 	if got := enter(t, m, inputDelete, "DELETE"); !got.busy || got.stage != "deleting Test" {
 		t.Fatalf("typed confirmation ignored: busy=%v stage=%q", got.busy, got.stage)
+	}
+}
+
+func TestSIMTabHidesEmptySlot(t *testing.T) {
+	m := newTestModel()
+	st := &modem.Status{State: "failed", FailedReason: "sim-missing", PrimarySlot: 1, Slots: []modem.Slot{
+		{Index: 1},
+		{Index: 2, Present: true, Type: "esim"},
+	}}
+	m.mobile = modemReport{Modem: st, Problem: st.Problem(true)}
+	out := m.viewSIM()
+	if strings.Contains(out, "Slot 1") || !strings.Contains(out, "Slot 2") {
+		t.Errorf("empty slot not hidden:\n%s", out)
+	}
+	if !strings.Contains(out, "switch to the eSIM above") {
+		t.Errorf("missing eSIM hint:\n%s", out)
+	}
+	m.mobile.Settings.ShowEmptySlots = true
+	if out := m.viewSIM(); !strings.Contains(out, "Slot 1") {
+		t.Errorf("empty slot hidden with show-empty on:\n%s", out)
 	}
 }
